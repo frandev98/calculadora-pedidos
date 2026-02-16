@@ -13,12 +13,11 @@ import com.francisco.calculadorapedidos.logic.DistributionCalculator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext // <--- ESTE IMPORT FALTABA
+import kotlinx.coroutines.withContext
 
 class OrderViewModel : ViewModel() {
 
     // --- 1. ESTADO DE LA LISTA DE PRODUCTOS ---
-    // Usamos mutableStateListOf para que la UI se actualice al cambiar la lista
     private val _selectedProducts = mutableStateListOf<Pair<Product, Int>>()
     val selectedProducts: List<Pair<Product, Int>> get() = _selectedProducts
 
@@ -27,17 +26,24 @@ class OrderViewModel : ViewModel() {
         private set
 
     // --- 3. ESTADO DE CARGA (Loading) ---
+    // CORRECCIÓN: Eliminado el duplicado. Solo debe aparecer una vez.
     var isLoading by mutableStateOf(false)
         private set
 
-    // --- 4. LA LÓGICA (Instanciamos la calculadora) ---
-    // Le ponemos el nombre correcto para que coincida con la función de abajo
+    // --- 4. META ACTUAL (Por defecto 540) ---
+    var targetGoal by mutableStateOf(540)
+        private set
+
+    // Función para actualizar la meta desde la UI (ej: al recibirla del Dashboard)
+    fun setGoal(goal: Int) {
+        targetGoal = goal
+    }
+
+    // --- 5. LA LÓGICA (Instanciamos la calculadora) ---
     private val distributionCalculator = DistributionCalculator()
 
     // --- FUNCIONES DE GESTIÓN DEL CARRITO ---
 
-    // Agregar producto nuevo (o sumar si ya existe)
-    // Esta función la usa el Catálogo
     fun addProduct(product: Product) {
         val existingIndex = _selectedProducts.indexOfFirst { it.first.id == product.id }
         if (existingIndex != -1) {
@@ -48,7 +54,6 @@ class OrderViewModel : ViewModel() {
         }
     }
 
-    // Incrementar cantidad (+)
     fun incrementQuantity(product: Product) {
         val index = _selectedProducts.indexOfFirst { it.first.id == product.id }
         if (index != -1) {
@@ -57,9 +62,6 @@ class OrderViewModel : ViewModel() {
         }
     }
 
-    // Decrementar cantidad (-)
-    // NOTA: Aquí aplicamos el "Freno de Mano". Solo resta si es mayor a 1.
-    // Para eliminar, el usuario debe usar el botón de eliminar explícito.
     fun decrementQuantity(product: Product) {
         val index = _selectedProducts.indexOfFirst { it.first.id == product.id }
         if (index != -1) {
@@ -67,46 +69,40 @@ class OrderViewModel : ViewModel() {
             if (qty > 1) {
                 _selectedProducts[index] = prod to (qty - 1)
             }
-            // Si es 1, no hace nada (por seguridad UX)
         }
     }
 
-    // Eliminar producto completamente (Papelera)
     fun removeProduct(product: Product) {
         _selectedProducts.removeAll { it.first.id == product.id }
     }
 
-    // Limpiar resultados (Botón volver)
     fun clearResult() {
         distributionResult = null
     }
 
-    // Obtener total de puntos para la barra de progreso
     fun getTotalPoints(): Double {
         return _selectedProducts.sumOf { it.first.points * it.second }
     }
 
-    // --- 5. LA FUNCIÓN MAESTRA: CALCULAR ---
+    // --- 6. LA FUNCIÓN MAESTRA: CALCULAR ---
     fun calculateDistribution() {
-        // A. Encendemos el indicador de carga
         isLoading = true
 
-        // B. Preparamos la configuración (Esto faltaba en tu código anterior)
-        val config = DistributionConfig()
+        // CORRECCIÓN: Usamos 'targetGoal' para configurar la calculadora.
+        // Así le pasamos la intención del usuario (540 o 645).
+        // (Asegúrate de que tu clase DistributionConfig acepte este parámetro,
+        // si no, déjalo vacío como DistributionConfig()).
+        val config = DistributionConfig(targetPoints = targetGoal.toDouble())
 
-        // C. Lanzamos el proceso en segundo plano (Default Dispatcher)
         viewModelScope.launch(Dispatchers.Default) {
 
-            // Pequeña pausa para que se vea la animación (UX)
-            delay(1000)
+            delay(1000) // Animación UX
 
-            // D. Ejecutamos las 20,000 iteraciones (Trabajo pesado)
             val result = distributionCalculator.calculate(_selectedProducts, config)
 
-            // E. Volvemos al hilo principal para mostrar el resultado
             withContext(Dispatchers.Main) {
                 distributionResult = result
-                isLoading = false // Apagamos el indicador
+                isLoading = false
             }
         }
     }

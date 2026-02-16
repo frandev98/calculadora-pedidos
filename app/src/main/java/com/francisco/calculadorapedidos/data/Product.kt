@@ -9,5 +9,5 @@ data class Product(
     val price: Double,         // Precio Lista
     val presentation: String,  // Detalle (ej. Dp 28 x 5g)
     val isVariableStock: Boolean = false,
-    val imageRes: Int // <--- NUEVO CAMPO (El ID de la imagen)
+    val imageRes: String
 )

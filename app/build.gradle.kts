@@ -55,4 +55,6 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.compose.material:material-icons-extended:1.6.8")
+    implementation(libs.androidx.datastore.preferences)
+    implementation("androidx.navigation:navigation-compose:2.8.5")
 }

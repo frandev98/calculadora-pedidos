@@ -1,5 +1,6 @@
 package com.francisco.calculadorapedidos.ui
 
+import com.francisco.calculadorapedidos.R
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,6 +36,7 @@ import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+
 fun CatalogDialog(
     onDismiss: () -> Unit,
     onProductSelected: (Product) -> Unit,
@@ -206,10 +209,13 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
                 color = Color(0xFFF5F5F5), // Fondo gris suave
                 modifier = Modifier.size(50.dp)
             ) {
+                // 1. Obtenemos el ID numérico a partir del nombre (String)
+                val imageResId = rememberDrawableId(product.imageRes)
                 Image(
-                    painter = painterResource(id = product.imageRes),
+                    // 2. Usamos el ID. Si es 0 (no encontrado), usa una imagen por defecto o placeholder
+                    painter = if (imageResId != 0) painterResource(id = imageResId) else painterResource(id = R.drawable.ic_launcher_foreground), // Asegúrate de tener un placeholder o usa uno del sistema
                     contentDescription = product.name,
-                    modifier = Modifier.padding(4.dp)
+                    modifier = Modifier.padding(all = 4.dp)
                 )
             }
 
@@ -261,5 +267,18 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun rememberDrawableId(imageName: String): Int {
+    val context = LocalContext.current
+    return remember(imageName) {
+        // Busca el ID del recurso en la carpeta 'drawable' usando el nombre
+        context.resources.getIdentifier(
+            imageName,
+            "drawable",
+            context.packageName
+        )
     }
 }

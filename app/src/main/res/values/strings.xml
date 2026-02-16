@@ -1,3 +1,26 @@
 <resources>
     <string name="app_name">CalculadoraPedidos</string>
+
+    <!-- OrderScreen Strings -->
+    <string name="calculate_period_order_title">Calcular Pedido del Período</string>
+    <string name="back_content_description">Volver</string>
+    <string name="calculate_button">CALCULAR</string>
+    <string name="add_product_button">AGREGAR PRODUCTO</string>
+    <string name="gamified_progress_missing_fmt">Faltan %1$s pts para tu meta</string>
+    <string name="gamified_progress_near_pro_fmt">¡Bien! A %1$s pts del Nivel PRO</string>
+    <string name="gamified_progress_max_reached">¡IMPARABLE! Meta Máxima Alcanzada 🚀</string>
+    <string name="your_progress_label">TU PROGRESO</string>
+    <string name="strategy_pro_level">¡ESTRATEGIA NIVEL PRO!</string>
+    <string name="strategy_base_goal">¡OBJETIVO BASE LISTO!</string>
+    <string name="total_accumulated_fmt">Total Acumulado: %1$s pts</string>
+    <string name="week_1_title">SEMANA 1 (Inicio)</string>
+    <string name="week_2_title">SEMANA 2 (Consistencia)</string>
+    <string name="week_3_title">SEMANA 3 (Avance)</string>
+    <string name="week_4_title">SEMANA 4 (Cierre Maestro)</string>
+    <string name="suborder_1_title">Pedido 1</string>
+    <string name="suborder_2_title">Pedido 2</string>
+    <string name="suborder_3_title">Pedido 3</string>
+    <string name="remove_content_description">Eliminar</string>
+    <string name="analyzing_strategies_title">Analizando Estrategias...</string>
+    <string name="optimizing_points_message">Optimizando tus puntos para la meta</string>
 </resources>

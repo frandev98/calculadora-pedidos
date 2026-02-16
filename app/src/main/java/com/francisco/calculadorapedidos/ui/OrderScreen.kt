@@ -15,8 +15,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Info // Asegúrate de tener este import
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
@@ -27,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
+import com.francisco.calculadorapedidos.data.ProductCatalog
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,7 +39,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.francisco.calculadorapedidos.data.DistributedItem
 import com.francisco.calculadorapedidos.data.DistributionResult
 import com.francisco.calculadorapedidos.data.Product
-import com.francisco.calculadorapedidos.data.ProductCatalog
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
@@ -46,10 +46,20 @@ import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
 import com.francisco.calculadorapedidos.ui.theme.SurfaceWhite
 import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
+import androidx.compose.ui.res.stringResource
+import com.francisco.calculadorapedidos.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderScreen(viewModel: OrderViewModel = viewModel()) {
+fun OrderScreen(
+    targetGoal: Int = 540, // Recibimos la meta (540 o 645)
+    viewModel: OrderViewModel = viewModel(),
+    onBack: () -> Unit
+) {
+    // Sincronizamos la meta con el ViewModel al entrar
+    LaunchedEffect(targetGoal) {
+        viewModel.setGoal(targetGoal)
+    }
 
     if (viewModel.distributionResult != null) {
         ResultView(
@@ -57,21 +67,36 @@ fun OrderScreen(viewModel: OrderViewModel = viewModel()) {
             onBack = { viewModel.clearResult() }
         )
     } else {
-        OrderInputView(viewModel)
+        OrderInputView(viewModel, onBack)
     }
 }
 
 // --- VISTA 1: INGRESAR PEDIDOS ---
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderInputView(viewModel: OrderViewModel) {
+fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
     var showCatalog by remember { mutableStateOf(false) }
 
     Scaffold(
-        // ... dentro del Scaffold ...
         containerColor = BackgroundWhite,
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.calculate_period_order_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back_content_description))
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
+            )
+        },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
-                // Botón Calcular (Se mantiene igual, solo asegúrate de darle espacio abajo)
+                // Botón Calcular
                 if (viewModel.selectedProducts.isNotEmpty()) {
                     ExtendedFloatingActionButton(
                         onClick = { viewModel.calculateDistribution() },
@@ -81,11 +106,11 @@ fun OrderInputView(viewModel: OrderViewModel) {
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("CALCULAR")
+                        Text(stringResource(R.string.calculate_button))
                     }
                 }
 
-                // NUEVO BOTÓN "AGREGAR" MEJORADO
+                // Botón Agregar
                 ExtendedFloatingActionButton(
                     onClick = { showCatalog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -94,7 +119,7 @@ fun OrderInputView(viewModel: OrderViewModel) {
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("AGREGAR PRODUCTO") // Texto claro y directo
+                    Text(stringResource(R.string.add_product_button))
                 }
             }
         }
@@ -104,19 +129,20 @@ fun OrderInputView(viewModel: OrderViewModel) {
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // --- 2. AQUÍ VA EL NUEVO HEADER GAMIFICADO ---
-            // Calculamos el total actual
-            val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }
+            // --- HEADER GAMIFICADO ---
+            // Calculamos el total actual (Aseguramos Double)
+            val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
 
-            GamifiedProgressHeader(currentPoints = totalPoints)
-            // ---------------------------------------------
+            GamifiedProgressHeader(
+                currentPoints = totalPoints,
+                targetGoal = viewModel.targetGoal
+            )
 
-            // Lista de Productos (LazyColumn)
+            // Lista de Productos
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 220.dp),
-                modifier = Modifier.weight(1f) // Ocupa el resto del espacio
+                modifier = Modifier.weight(1f)
             ) {
-                // ... tu lista de items con key ...
                 items(
                     items = viewModel.selectedProducts,
                     key = { (product, _) -> product.id }
@@ -126,8 +152,6 @@ fun OrderInputView(viewModel: OrderViewModel) {
                         quantity = quantity,
                         onInc = { viewModel.incrementQuantity(product) },
                         onDec = {
-                            // Freno de seguridad: Solo restamos si hay más de 1.
-                            // Si está en 1 y pulsan menos, no hacemos NADA.
                             if (quantity > 1) {
                                 viewModel.decrementQuantity(product)
                             }
@@ -139,11 +163,9 @@ fun OrderInputView(viewModel: OrderViewModel) {
         }
     }
 
-    /// Modal Catálogo NUEVO Y MEJORADO
+    // Modal Catálogo
     if (showCatalog) {
-        // 1. Calculamos los IDs de los productos que ya tenemos en el carrito
-        // Usamos 'remember' para que no lo recalcule a cada rato innecesariamente
-        val currentIds = remember(viewModel.selectedProducts) {
+        val currentIds = remember(viewModel.selectedProducts.size) {
             viewModel.selectedProducts.map { it.first.id }
         }
 
@@ -151,21 +173,20 @@ fun OrderInputView(viewModel: OrderViewModel) {
             onDismiss = { showCatalog = false },
             onProductSelected = { product ->
                 viewModel.addProduct(product)
-                // showCatalog = false // Opcional: Si quieres que se cierre al elegir
             },
-            excludedIds = currentIds // <--- 2. LE PASAMOS LA LISTA NEGRA
+            excludedIds = currentIds
         )
     }
+
+    // Diálogo de Carga
     if (viewModel.isLoading) {
         CalculatingDialog()
     }
 }
 
-// --- VISTA 2: RESULTADOS (Igual que antes) ---
-@OptIn(ExperimentalMaterial3Api::class)
+// --- VISTA 2: RESULTADOS ---
 @Composable
 fun ResultView(result: DistributionResult, onBack: () -> Unit) {
-    // Calculamos totales
     val totalPoints = result.week1.sumOf { it.totalPoints } +
             result.week2.sumOf { it.totalPoints } +
             result.week3.sumOf { it.totalPoints } +
@@ -179,74 +200,64 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
 
     Scaffold(
         containerColor = BackgroundWhite
-        // 1. ELIMINAMOS 'topBar' DE AQUÍ para que no cree la franja blanca
     ) { padding ->
-        // 2. Usamos un BOX para poder apilar cosas (Lista abajo, Botón arriba)
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // CAPA 1: La Lista (El contenido)
+            // CAPA 1: La Lista
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 32.dp),
                 modifier = Modifier
                     .fillMaxSize()
-                    // IMPORTANTE: Solo aplicamos padding abajo para no tapar con la barra de navegación,
-                    // pero ignoramos el de arriba para que el Header Azul toque el techo.
                     .padding(bottom = padding.calculateBottomPadding())
             ) {
-                // Header Azul
                 item { StrategicResultHeader(totalPoints = totalPoints) }
 
-                // Semana 1
                 item {
-                    TimelineWeekItem("SEMANA 1 (Inicio)", result.week1.sumOf { it.totalPoints }) {
+                    TimelineWeekItem(stringResource(R.string.week_1_title), result.week1.sumOf { it.totalPoints }) {
                         result.week1.forEach { ProductResultRow(it) }
                     }
                 }
 
-                // Semana 2
                 item {
-                    TimelineWeekItem("SEMANA 2 (Consistencia)", result.week2.sumOf { it.totalPoints }) {
+                    TimelineWeekItem(stringResource(R.string.week_2_title), result.week2.sumOf { it.totalPoints }) {
                         result.week2.forEach { ProductResultRow(it) }
                     }
                 }
 
-                // Semana 3
                 item {
-                    TimelineWeekItem("SEMANA 3 (Avance)", result.week3.sumOf { it.totalPoints }) {
+                    TimelineWeekItem(stringResource(R.string.week_3_title), result.week3.sumOf { it.totalPoints }) {
                         result.week3.forEach { ProductResultRow(it) }
                     }
                 }
 
-                // Semana 4
                 item {
-                    TimelineWeekItem("SEMANA 4 (Cierre Maestro)", week4Total, isLast = true) {
+                    TimelineWeekItem(stringResource(R.string.week_4_title), week4Total, isLast = true) {
                         if (result.week4.subOrder1.isNotEmpty()) {
-                            SubOrderHeader("Pedido 1", result.week4.subOrder1)
+                            SubOrderHeader(stringResource(R.string.suborder_1_title), result.week4.subOrder1)
                             result.week4.subOrder1.forEach { ProductResultRow(it) }
                         }
                         if (result.week4.subOrder2.isNotEmpty()) {
-                            SubOrderHeader("Pedido 2", result.week4.subOrder2)
+                            SubOrderHeader(stringResource(R.string.suborder_2_title), result.week4.subOrder2)
                             result.week4.subOrder2.forEach { ProductResultRow(it) }
                         }
                         if (result.week4.subOrder3.isNotEmpty()) {
-                            SubOrderHeader("Pedido 3", result.week4.subOrder3)
+                            SubOrderHeader(stringResource(R.string.suborder_3_title), result.week4.subOrder3)
                             result.week4.subOrder3.forEach { ProductResultRow(it) }
                         }
                     }
                 }
             }
 
-            // CAPA 2: El Botón Flotante (Encima de todo)
+            // CAPA 2: El Botón Flotante de Volver
             IconButton(
                 onClick = onBack,
                 modifier = Modifier
-                    .padding(top = 16.dp, start = 8.dp) // Margen para separarlo del borde
-                    .align(Alignment.TopStart) // Pegado arriba a la izquierda
+                    .padding(top = 16.dp, start = 8.dp)
+                    .align(Alignment.TopStart)
             ) {
-                // Ahora sí se verá porque estará sobre el Azul
                 Icon(
                     imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Volver",
+                    contentDescription = stringResource(R.string.back_content_description),
                     tint = Color.White
                 )
             }
@@ -254,77 +265,23 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
     }
 }
 
-// Componentes Auxiliares
-@Composable
-fun WeekHeader(title: String, items: List<DistributedItem>) {
-    val total = items.sumOf { it.totalPoints }
-    // Usamos un diseño de "Banner" más sólido
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), // Azul muy suave
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp) // Más espacio vertical
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Icono de calendario pequeño para decorar
-                Icon(
-                    imageVector = Icons.Default.DateRange, // Asegúrate de importar Icons.Default.DateRange
-                    contentDescription = null,
-                    tint = Color(0xFF1565C0),
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1565C0)
-                )
-            }
-
-            // Total destacado
-            Surface(
-                color = Color(0xFF1565C0),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Text(
-                    text = "$total pts",
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
-        }
-    }
-}
+// --- COMPONENTES AUXILIARES ---
 
 @Composable
 fun SubOrderHeader(title: String, items: List<DistributedItem>) {
     val total = items.sumOf { it.totalPoints }
-
-    // Diseño tipo "Etiqueta" o "Banner pequeño"
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 16.dp, bottom = 8.dp, start = 16.dp, end = 16.dp)
-            .background(Color(0xFFEEEEEE), shape = MaterialTheme.shapes.small) // Fondo gris claro
+            .background(Color(0xFFEEEEEE), shape = MaterialTheme.shapes.small)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Un icono de "Caja" o "Paquete" ayuda visualmente
             Icon(
-                imageVector = Icons.Default.ShoppingCart, // O usa ShoppingBag si lo tienes
+                imageVector = Icons.Default.ShoppingCart,
                 contentDescription = null,
                 tint = Color(0xFF616161),
                 modifier = Modifier.size(18.dp)
@@ -337,8 +294,6 @@ fun SubOrderHeader(title: String, items: List<DistributedItem>) {
                 color = Color(0xFF424242)
             )
         }
-
-        // El total del sub-pedido resaltado
         Text(
             text = "$total pts",
             style = MaterialTheme.typography.labelLarge,
@@ -355,7 +310,7 @@ fun ProductResultRow(item: DistributedItem) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        elevation = CardDefaults.cardElevation(1.dp) // Elevación sutil
+        elevation = CardDefaults.cardElevation(1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -363,14 +318,17 @@ fun ProductResultRow(item: DistributedItem) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. IMAGEN PEQUEÑA (NUEVO)
             Surface(
                 shape = MaterialTheme.shapes.extraSmall,
                 color = Color(0xFFF5F5F5),
-                modifier = Modifier.size(45.dp) // Tamaño compacto para resultados
+                modifier = Modifier.size(45.dp)
             ) {
+                val context = LocalContext.current
+                val imageResId = remember(item.product.imageRes) { 
+                    ProductCatalog.getXmlImageId(context, item.product.imageRes) 
+                }
                 Image(
-                    painter = painterResource(id = item.product.imageRes),
+                    painter = painterResource(id = imageResId),
                     contentDescription = null,
                     modifier = Modifier.padding(2.dp)
                 )
@@ -378,7 +336,6 @@ fun ProductResultRow(item: DistributedItem) {
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // 2. DATOS CENTRALES
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.product.name,
@@ -386,24 +343,18 @@ fun ProductResultRow(item: DistributedItem) {
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1
                 )
-
                 Text(
                     text = item.product.presentation,
-                    style = MaterialTheme.typography.bodySmall, // Letra pequeña
+                    style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis // Pone "..." si es muy largo
+                    overflow = TextOverflow.Ellipsis
                 )
 
-                // 3. EL BADGE/ETIQUETA (LÓGICA MEJORADA)
-                // Solo mostramos el badge si NO es P1, P2 o P3 (porque ya tenemos encabezados para eso)
-                // CORRECCIÓN: Usamos 'contains' para que detecte "[P1]", "P1", "[ P1 ]", etc.
                 val isRedundantTag = item.tag.contains("P1") || item.tag.contains("P2") || item.tag.contains("P3")
-
                 if (item.tag.isNotEmpty() && !isRedundantTag) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
-                        // Si es "Extra" u otra cosa, mantenemos el color
                         color = if (item.tag.contains("Extra")) Color(0xFFFFE0B2) else Color(0xFFC8E6C9),
                         shape = MaterialTheme.shapes.small
                     ) {
@@ -418,7 +369,6 @@ fun ProductResultRow(item: DistributedItem) {
                 }
             }
 
-            // 4. CANTIDAD Y PUNTOS (A la derecha)
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = "x${item.quantity}",
@@ -448,17 +398,20 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp), // Padding general equilibrado
-            verticalAlignment = Alignment.CenterVertically // Centrado vertical general
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // --- SECCIÓN IZQUIERDA: IMAGEN ---
+            val context = LocalContext.current
+            val imageResId = remember(product.imageRes) { 
+                ProductCatalog.getXmlImageId(context, product.imageRes) 
+            }
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = Color(0xFFF5F5F5),
                 modifier = Modifier.size(60.dp)
             ) {
                 Image(
-                    painter = painterResource(id = product.imageRes),
+                    painter = painterResource(id = imageResId),
                     contentDescription = product.name,
                     modifier = Modifier.padding(4.dp)
                 )
@@ -466,7 +419,6 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // --- SECCIÓN CENTRAL: INFORMACIÓN ---
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = product.name,
@@ -481,7 +433,6 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
                     color = Color(0xFF757575)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                // Recuperamos los puntos aquí para que no queden "huérfanos" abajo
                 Text(
                     text = "${product.points} pts",
                     style = MaterialTheme.typography.labelMedium,
@@ -492,40 +443,31 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // --- SECCIÓN DERECHA: ZONA DE CONTROL (X + Contador) ---
             Column(
-                horizontalAlignment = Alignment.End, // Todo pegado a la derecha
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // 1. La X (Arriba a la derecha)
-                // Usamos un Box para darle un área de toque generosa sin ocupar mucho espacio visual
                 Box(
                     contentAlignment = Alignment.TopEnd,
-                    modifier = Modifier.size(24.dp) // Altura reservada para la X
+                    modifier = Modifier.size(24.dp)
                 ) {
-                    IconButton(
-                        onClick = onRemove,
-                        modifier = Modifier.size(24.dp) // Botón pequeño
-                    ) {
+                    IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Eliminar",
-                            tint = Color(0xFFBDBDBD), // Gris suave
+                            contentDescription = stringResource(R.string.remove_content_description),
+                            tint = Color(0xFFBDBDBD),
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(12.dp)) // Separación vertical de seguridad
-
-                // 2. El Contador Grande (Abajo a la derecha)
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier
                         .background(Color(0xFFF5F5F5), shape = MaterialTheme.shapes.medium)
-                        .height(36.dp) // Altura cómoda
-                        .width(100.dp) // Ancho fijo para que no baile
+                        .height(36.dp)
+                        .width(100.dp)
                 ) {
                     IconButton(onClick = onDec, modifier = Modifier.weight(1f)) {
                         Text("-", fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -533,7 +475,7 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
                     Text(
                         text = "$quantity",
                         fontWeight = FontWeight.Bold,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onInc, modifier = Modifier.weight(1f)) {
@@ -545,94 +487,85 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
     }
 }
 
+data class ProgressState(
+    val target: Double,
+    val progress: Double,
+    val message: String,
+    val color: Color
+)
+
 @Composable
-fun GamifiedProgressHeader(currentPoints: Double) {
+fun GamifiedProgressHeader(
+    currentPoints: Double,
+    targetGoal: Int
+) {
     val goal1 = 540.0
-    val goal2 = 645.0
+    val goal2 = targetGoal.toDouble()
 
-    // 1. Creamos una estructura temporal para guardar los 4 datos (CORRECCIÓN)
-    data class ProgressState(
-        val target: Double,
-        val progress: Double,
-        val message: String,
-        val color: Color
-    )
-
-    // 2. Calculamos el estado usando nuestra nueva estructura
+    // Lógica de cálculo de estado
     val state = when {
         currentPoints < goal1 -> {
             val p = (currentPoints / goal1).coerceIn(0.0, 1.0)
             val left = goal1 - currentPoints
-            ProgressState(goal1, p, "Faltan ${String.format("%.1f", left)} pts para el 40%", ProgressOrange)
+            ProgressState(goal1, p, stringResource(R.string.gamified_progress_missing_fmt, String.format("%.1f", left)), ProgressOrange)
         }
         currentPoints < goal2 -> {
             val p = ((currentPoints - goal1) / (goal2 - goal1)).coerceIn(0.0, 1.0)
             val left = goal2 - currentPoints
-            ProgressState(goal2, p, "¡Bien! A ${String.format("%.1f", left)} pts del Nivel PRO", FuxionBlue)
+            ProgressState(goal2, p, stringResource(R.string.gamified_progress_near_pro_fmt, String.format("%.1f", left)), FuxionBlue)
         }
         else -> {
-            ProgressState(goal2, 1.0, "¡IMPARABLE! Meta Máxima Alcanzada 🚀", FuxionGreen)
+            ProgressState(goal2, 1.0, stringResource(R.string.gamified_progress_max_reached), FuxionGreen)
         }
     }
 
-    // 3. Diseño Visual (Usamos 'state' para acceder a los datos)
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
         elevation = CardDefaults.cardElevation(6.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceWhite)
     ) {
         Column(
-            modifier = Modifier
-                .padding(20.dp)
-                .fillMaxWidth(),
+            modifier = Modifier.padding(20.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "TU PROGRESO",
+                text = stringResource(R.string.your_progress_label),
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )
-
             Spacer(modifier = Modifier.height(8.dp))
-
             Text(
                 text = "$currentPoints pts",
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.ExtraBold,
                 color = TextPrimary
             )
-
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Barra de Progreso
+            // CORRECCIÓN: 'progress' es un valor Float, no una lambda
             LinearProgressIndicator(
-                progress = { state.progress.toFloat() }, // Usamos state.progress
+                progress = state.progress.toFloat(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(12.dp)
                     .clip(RoundedCornerShape(6.dp)),
-                color = state.color, // Usamos state.color
+                color = state.color,
                 trackColor = Color(0xFFECEFF1),
             )
-
             Spacer(modifier = Modifier.height(12.dp))
-
-            // Mensaje Motivacional
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = if (currentPoints >= goal2) Icons.Default.Star else Icons.Default.Info,
                     contentDescription = null,
-                    tint = state.color, // Usamos state.color
+                    tint = state.color,
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = state.message, // Usamos state.message
+                    text = state.message,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = state.color
@@ -644,13 +577,13 @@ fun GamifiedProgressHeader(currentPoints: Double) {
 
 @Composable
 fun StrategicResultHeader(totalPoints: Double) {
-    val isPro = totalPoints >= 645 // Meta Grande
+    val isPro = totalPoints >= 645
     val color = if (isPro) FuxionGreen else FuxionBlue
-    val title = if (isPro) "¡ESTRATEGIA NIVEL PRO!" else "¡OBJETIVO 40% LISTO!"
+    val title = if (isPro) stringResource(R.string.strategy_pro_level) else stringResource(R.string.strategy_base_goal)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
-        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp), // Curva suave abajo
+        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
         modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
     ) {
         Column(
@@ -658,7 +591,7 @@ fun StrategicResultHeader(totalPoints: Double) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                imageVector = Icons.Default.CheckCircle, // Importar CheckCircle
+                imageVector = Icons.Default.CheckCircle,
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.size(48.dp)
@@ -671,7 +604,7 @@ fun StrategicResultHeader(totalPoints: Double) {
                 color = Color.White
             )
             Text(
-                text = "Total Acumulado: $totalPoints pts",
+                text = stringResource(R.string.total_accumulated_fmt, totalPoints),
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.9f)
             )
@@ -683,35 +616,40 @@ fun StrategicResultHeader(totalPoints: Double) {
 fun TimelineWeekItem(
     weekTitle: String,
     points: Double,
-    isLast: Boolean = false, // Para saber si dibujamos la línea hacia abajo o no
+    isLast: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    // CORRECCIÓN: IntrinsicSize.Min asegura que la columna de la línea
+    // tenga la misma altura que el contenido.
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .height(IntrinsicSize.Min)
+    ) {
         // --- COLUMNA IZQUIERDA: La Línea de Tiempo ---
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // El Punto (Hito)
             Box(
                 modifier = Modifier
                     .size(24.dp)
                     .background(FuxionBlue, CircleShape)
                     .border(2.dp, Color.White, CircleShape)
             )
-            // La Línea Vertical
             if (!isLast) {
+                // Ahora 'weight(1f)' funciona porque el padre tiene altura definida
                 Box(
                     modifier = Modifier
                         .width(2.dp)
-                        .weight(1f) // Ocupa todo el alto necesario
-                        .background(Color(0xFFE0E0E0)) // Gris suave
+                        .weight(1f)
+                        .background(Color(0xFFE0E0E0))
                 )
             }
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        // --- COLUMNA DERECHA: El Contenido (Tarjeta de la Semana) ---
+        // --- COLUMNA DERECHA: El Contenido ---
         Column(modifier = Modifier.padding(bottom = 32.dp)) {
-            // Título de la Semana (Hito)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
@@ -723,7 +661,6 @@ fun TimelineWeekItem(
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                // Badge de Puntos
                 Surface(
                     color = FuxionBlue.copy(alpha = 0.1f),
                     shape = RoundedCornerShape(50)
@@ -737,8 +674,6 @@ fun TimelineWeekItem(
                     )
                 }
             }
-
-            // Aquí se inyecta la lista de productos
             content()
         }
     }
@@ -747,7 +682,7 @@ fun TimelineWeekItem(
 @Composable
 fun CalculatingDialog() {
     Dialog(
-        onDismissRequest = { /* No permitir cerrar mientras calcula */ },
+        onDismissRequest = { },
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
     ) {
         Card(
@@ -759,26 +694,21 @@ fun CalculatingDialog() {
                 modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Un indicador giratorio con tu color corporativo
                 CircularProgressIndicator(
                     color = FuxionBlue,
                     strokeWidth = 4.dp,
                     modifier = Modifier.size(48.dp)
                 )
-
                 Spacer(modifier = Modifier.height(16.dp))
-
                 Text(
-                    text = "Analizando Estrategias...",
+                    text = stringResource(R.string.analyzing_strategies_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Text(
-                    text = "Optimizando tus puntos para el 40%",
+                    text = stringResource(R.string.optimizing_points_message),
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
