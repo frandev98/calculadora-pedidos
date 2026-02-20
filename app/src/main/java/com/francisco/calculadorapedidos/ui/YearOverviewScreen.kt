@@ -1,135 +1,295 @@
 package com.francisco.calculadorapedidos.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.francisco.calculadorapedidos.data.FuxionDataStore
+import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
+import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
+import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
+import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
+import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
+import com.francisco.calculadorapedidos.ui.theme.TextPrimary
+import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.*
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YearOverviewScreen(
     dataStore: FuxionDataStore,
-    onPeriodClick: (Int) -> Unit // Navigates to PeriodDetail
+    onPeriodClick: (Int) -> Unit,
+    onSettingsClick: () -> Unit, // Este volverá a ser para el Calendario/Ajustes
+    onClientsClick: () -> Unit   // Este será NUEVO para tus Socios
 ) {
+    val context = LocalContext.current
+    val orderRepository = remember { OrderRepository(context) }
+
+    // Estado para almacenar los resúmenes de puntos por periodo
+    // Usamos un Map: Clave = PeriodId, Valor = Puntos Totales
+    var periodPointsMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    var periodGoalsMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+
+    // Obtenemos la fecha ancla
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
 
+    // Cargamos los datos de progreso cada vez que entramos a la pantalla
+    LaunchedEffect(Unit) {
+        val newPointsMap = mutableMapOf<Int, Int>()
+        val newGoalsMap = mutableMapOf<Int, Int>()
+        for (i in 1..13) {
+            newPointsMap[i] = orderRepository.getPeriodTotalPoints(i)
+            newGoalsMap[i] = orderRepository.getPeriodGoal(i)
+        }
+        periodPointsMap = newPointsMap
+        periodGoalsMap = newGoalsMap
+    }
+
     if (anchorDate == null) {
-        // Loading or error state
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-            CircularProgressIndicator()
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
+    val anchor = Date(anchorDate!!)
+    val status = FuxionCalendarLogic.calculateStatus(anchor)
+    val today = Date()
+    val todayFormat = SimpleDateFormat("EEEE, d 'DE' MMMM", Locale("es", "ES"))
+    val rangeFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Mi Plan Anual Fuxion") },
+                actions = {
+                    // BOTÓN 1: MIS SOCIOS (Icono de Personas)
+                    IconButton(onClick = onClientsClick) {
+                        Icon(Icons.Default.People, contentDescription = "Mis Socios", tint = Color.White)
+                    }
+
+                    // BOTÓN 2: CONFIGURACIÓN / CALENDARIO (Icono de Engranaje)
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(Icons.Default.Settings, contentDescription = "Configuración", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = FuxionGreen,
+                    titleContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                )
+            )
         }
-    } else {
-        val anchor = Date(anchorDate!!)
-        val periods = FuxionCalendarLogic.getFullYearPlan(anchor)
-        val currentStatus = FuxionCalendarLogic.calculateStatus(anchor)
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .background(BackgroundWhite)
+        ) {
+            // --- HEADER / TARJETA DE ESTADO ACTUAL ---
+            item {
+                Card(
+                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = FuxionBlue),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Today, null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(todayFormat.format(today).uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        }
+                        Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
+                        Spacer(Modifier.height(20.dp))
 
-        Scaffold(
-            topBar = {
-                TopAppBar(title = { Text("Mi Año Fuxion") })
-            }
-        ) { padding ->
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                modifier = Modifier.padding(padding),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Header Status
-                item {
-                    StatusCard(currentStatus)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Mis Periodos", style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("PERIODO", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Text("${status.period}", color = Color.White, style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp), fontWeight = FontWeight.Bold, lineHeight = 72.sp)
+                            }
+                            Spacer(modifier = Modifier.width(32.dp))
+                            Box(modifier = Modifier.width(1.dp).height(60.dp).background(Color.White.copy(alpha = 0.3f)))
+                            Spacer(modifier = Modifier.width(32.dp))
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text("SEMANA ACTUAL", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Text("Semana ${status.week}", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CalendarToday, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("${rangeFormat.format(status.weekStartDate)} - ${rangeFormat.format(status.weekEndDate)}", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Surface(
+                                    color = if (status.daysRemainingInWeek <= 2) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.AccessTime, null, tint = if (status.daysRemainingInWeek <= 2) Color(0xFFE65100) else Color.White, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("${status.daysRemainingInWeek} días restantes", style = MaterialTheme.typography.labelSmall, color = if (status.daysRemainingInWeek <= 2) Color(0xFFE65100) else Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                    }
                 }
+            }
 
-                items(periods) { period ->
-                    PeriodItem(
-                        period = period,
-                        isCurrent = period.number == currentStatus.period,
-                        isPast = period.number < currentStatus.period,
-                        onClick = { onPeriodClick(period.number) }
-                    )
-                }
+            item {
+                Text("Todos los Periodos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
+
+            items(13) { index ->
+                val periodNum = index + 1
+                val (start, end) = FuxionCalendarLogic.getPeriodDates(anchor, periodNum)
+                val isCurrent = (periodNum == status.period)
+
+                // Datos de Progreso
+                val totalPoints = periodPointsMap[periodNum] ?: 0
+                val goal = periodGoalsMap[periodNum] ?: 540
+
+                PeriodCard(
+                    periodNumber = periodNum,
+                    dateRange = "${rangeFormat.format(start)} - ${rangeFormat.format(end)}",
+                    isCurrent = isCurrent,
+                    currentPoints = totalPoints,
+                    goalPoints = goal,
+                    onClick = { onPeriodClick(periodNum) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
 
 @Composable
-fun StatusCard(status: FuxionCalendarLogic.FuxionStatus) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Estás en:", style = MaterialTheme.typography.labelMedium)
-            Text(
-                "Periodo ${status.period} - Semana ${status.week}",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                "Cierre de semana en ${status.daysRemainingInWeek} días",
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-}
-
-@Composable
-fun PeriodItem(
-    period: FuxionCalendarLogic.PeriodInfo,
+fun PeriodCard(
+    periodNumber: Int,
+    dateRange: String,
     isCurrent: Boolean,
-    isPast: Boolean,
+    currentPoints: Int,
+    goalPoints: Int,
     onClick: () -> Unit
 ) {
-    val dateFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
-    val containerColor = when {
-        isCurrent -> MaterialTheme.colorScheme.secondaryContainer
-        isPast -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        else -> MaterialTheme.colorScheme.surface
-    }
+    val isCompleted = currentPoints >= goalPoints && currentPoints > 0
+    val progress = (currentPoints.toFloat() / goalPoints.toFloat()).coerceIn(0f, 1f)
 
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = if (isCurrent) CardDefaults.cardElevation(defaultElevation = 4.dp) else CardDefaults.cardElevation(defaultElevation = 1.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clickable { onClick() },
+        elevation = CardDefaults.cardElevation(if (isCurrent) 4.dp else 1.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCurrent) Color(0xFFE8F5E9) else Color.White
+        ),
+        shape = RoundedCornerShape(12.dp),
+        border = if (isCurrent) BorderStroke(2.dp, FuxionGreen) else null
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "Periodo ${period.number}",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                )
-                Text(
-                    text = "${dateFormat.format(period.start)} - ${dateFormat.format(period.end)}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            // Icono de Calendario
+            Icon(
+                Icons.Default.DateRange,
+                contentDescription = null,
+                tint = if (isCurrent) FuxionGreen else TextSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Información Central
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Periodo $periodNumber",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    if (isCurrent) {
+                        Spacer(Modifier.width(8.dp))
+                        Text("ACTUAL", style = MaterialTheme.typography.labelSmall, color = FuxionGreen, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Text(dateRange, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+
+                // BARRA DE PROGRESO (Solo si hay puntos)
+                if (currentPoints > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LinearProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = if (isCompleted) FuxionGreen else FuxionBlue,
+                            trackColor = Color(0xFFEEEEEE)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "$currentPoints/$goalPoints",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCompleted) FuxionGreen else TextSecondary
+                        )
+                    }
+                }
             }
-            if (isCurrent) {
-                Badge(containerColor = MaterialTheme.colorScheme.primary) { Text("ACTUAL") }
-            } else if (isPast) {
-                 Icon(
-                     imageVector = androidx.compose.material.icons.Icons.Filled.CheckCircle,
-                     contentDescription = "Pasado",
-                     tint = Color.Gray
-                 )
+
+            // Icono de Estado a la derecha
+            Spacer(Modifier.width(8.dp))
+            if (isCompleted) {
+                // Si completó: Estrella Dorada/Verde
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = "Completado",
+                    tint = Color(0xFFFFB300), // Dorado
+                    modifier = Modifier.size(24.dp)
+                )
+            } else {
+                // Si no: Flecha normal
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = TextSecondary
+                )
             }
         }
     }

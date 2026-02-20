@@ -11,14 +11,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 // Extensión para crear el DataStore
+// MANTENEMOS TU NOMBRE ORIGINAL: "fuxion_prefs"
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "fuxion_prefs")
 
 class FuxionDataStore(private val context: Context) {
 
     companion object {
         val KEY_ANCHOR_DATE = longPreferencesKey("anchor_date_p1")
-        // La meta "activa" global, o podemos guardar por periodo
-        // Para empezar simple: guardamos la meta POR periodo dinámicamente
     }
 
     // --- ANCHOR DATE (Inicio P1) ---
@@ -34,7 +33,6 @@ class FuxionDataStore(private val context: Context) {
     }
 
     // --- METAS POR PERIODO ---
-    // Clave dinámica: "goal_p1", "goal_p2", etc.
     fun getGoalForPeriod(period: Int): Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[intPreferencesKey("goal_p$period")] ?: 540 // Default 540 (Base)
@@ -43,6 +41,14 @@ class FuxionDataStore(private val context: Context) {
     suspend fun saveGoalForPeriod(period: Int, goal: Int) {
         context.dataStore.edit { preferences ->
             preferences[intPreferencesKey("goal_p$period")] = goal
+        }
+    }
+
+    // --- NUEVA FUNCIÓN AGREGADA: BORRAR DATOS ---
+    // Esta es la que faltaba para que funcione el botón rojo
+    suspend fun clearData() {
+        context.dataStore.edit { preferences ->
+            preferences.clear() // Borra fecha de inicio y metas guardadas aquí
         }
     }
 }

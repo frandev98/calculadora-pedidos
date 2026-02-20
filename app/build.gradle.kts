@@ -57,4 +57,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.6.8")
     implementation(libs.androidx.datastore.preferences)
     implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("androidx.browser:browser:1.7.0")
 }

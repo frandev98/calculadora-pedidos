@@ -17,33 +17,34 @@ import kotlinx.coroutines.withContext
 
 class OrderViewModel : ViewModel() {
 
-    // --- 1. ESTADO DE LA LISTA DE PRODUCTOS ---
+    // --- ESTADO ---
     private val _selectedProducts = mutableStateListOf<Pair<Product, Int>>()
     val selectedProducts: List<Pair<Product, Int>> get() = _selectedProducts
 
-    // --- 2. ESTADO DEL RESULTADO ---
     var distributionResult by mutableStateOf<DistributionResult?>(null)
         private set
 
-    // --- 3. ESTADO DE CARGA (Loading) ---
-    // CORRECCIÓN: Eliminado el duplicado. Solo debe aparecer una vez.
     var isLoading by mutableStateOf(false)
         private set
 
-    // --- 4. META ACTUAL (Por defecto 540) ---
     var targetGoal by mutableStateOf(540)
         private set
 
-    // Función para actualizar la meta desde la UI (ej: al recibirla del Dashboard)
-    fun setGoal(goal: Int) {
-        targetGoal = goal
-    }
+    // NUEVO: Saber si es modo semanal
+    var isWeeklyMode by mutableStateOf(false)
+        private set
 
-    // --- 5. LA LÓGICA (Instanciamos la calculadora) ---
     private val distributionCalculator = DistributionCalculator()
 
-    // --- FUNCIONES DE GESTIÓN DEL CARRITO ---
+    // --- CONFIGURACIÓN ---
+    fun setupMode(goal: Int, isWeekly: Boolean) {
+        targetGoal = goal
+        isWeeklyMode = isWeekly
+        // Limpiamos resultados previos si cambiamos de modo
+        distributionResult = null
+    }
 
+    // --- GESTIÓN DE PRODUCTOS (Reutilizada) ---
     fun addProduct(product: Product) {
         val existingIndex = _selectedProducts.indexOfFirst { it.first.id == product.id }
         if (existingIndex != -1) {
@@ -76,34 +77,43 @@ class OrderViewModel : ViewModel() {
         _selectedProducts.removeAll { it.first.id == product.id }
     }
 
+    // --- NUEVA FUNCIÓN: LIMPIAR CARRITO ---
+    fun clearCart() {
+        _selectedProducts.clear()
+    }
+
     fun clearResult() {
         distributionResult = null
     }
 
-    fun getTotalPoints(): Double {
-        return _selectedProducts.sumOf { it.first.points * it.second }
+    // --- LÓGICA DE ACCIÓN PRINCIPAL ---
+    fun onPrincipalActionButtonClick() {
+        if (isWeeklyMode) {
+            // LÓGICA SEMANAL: Aquí podrías guardar en base de datos o simplemente mostrar confirmación
+            // Por ahora, no hacemos cálculo complejo, quizás solo un mensaje de éxito.
+            // (Para este MVP, no haremos nada complejo aquí, la UI manejará la visualización)
+        } else {
+            // LÓGICA PERIODO: Ejecuta el algoritmo de distribución
+            calculateDistribution()
+        }
     }
 
-    // --- 6. LA FUNCIÓN MAESTRA: CALCULAR ---
-    fun calculateDistribution() {
+    private fun calculateDistribution() {
         isLoading = true
-
-        // CORRECCIÓN: Usamos 'targetGoal' para configurar la calculadora.
-        // Así le pasamos la intención del usuario (540 o 645).
-        // (Asegúrate de que tu clase DistributionConfig acepte este parámetro,
-        // si no, déjalo vacío como DistributionConfig()).
         val config = DistributionConfig(targetPoints = targetGoal.toDouble())
 
         viewModelScope.launch(Dispatchers.Default) {
-
-            delay(1000) // Animación UX
-
+            delay(1000)
             val result = distributionCalculator.calculate(_selectedProducts, config)
-
             withContext(Dispatchers.Main) {
                 distributionResult = result
                 isLoading = false
             }
         }
+    }
+
+    fun loadProducts(products: List<Pair<Product, Int>>) {
+        _selectedProducts.clear()
+        _selectedProducts.addAll(products)
     }
 }

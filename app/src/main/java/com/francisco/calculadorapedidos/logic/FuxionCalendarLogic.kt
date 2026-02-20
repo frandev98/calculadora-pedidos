@@ -102,4 +102,16 @@ object FuxionCalendarLogic {
         c.add(Calendar.DAY_OF_YEAR, days)
         return c.time
     }
+
+    fun getPeriodDates(anchor: Date, periodNumber: Int): Pair<Date, Date> {
+        // Cada periodo dura 28 días (4 semanas)
+        // El periodo 1 empieza en el día 0.
+        // El periodo N empieza en (N-1) * 28 días después del ancla.
+        val daysToStart = (periodNumber - 1) * 28
+
+        val start = addDays(anchor, daysToStart)
+        val end = addDays(start, 27) // Termina 27 días después del inicio (total 28 días)
+
+        return Pair(start, end)
+    }
 }

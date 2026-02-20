@@ -10,24 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Info // Asegúrate de tener este import
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
-import com.francisco.calculadorapedidos.data.ProductCatalog
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,9 +28,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.francisco.calculadorapedidos.R
 import com.francisco.calculadorapedidos.data.DistributedItem
 import com.francisco.calculadorapedidos.data.DistributionResult
+import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.data.Product
+import com.francisco.calculadorapedidos.data.ProductCatalog
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
@@ -46,19 +41,31 @@ import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
 import com.francisco.calculadorapedidos.ui.theme.SurfaceWhite
 import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
-import androidx.compose.ui.res.stringResource
-import com.francisco.calculadorapedidos.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
-    targetGoal: Int = 540, // Recibimos la meta (540 o 645)
+    targetGoal: Int,
+    isWeeklyMode: Boolean,
+    periodId: Int = 0,
+    weekId: Int = 0,
+    clientId: String = "", // <--- NUEVO PARAMETRO
     viewModel: OrderViewModel = viewModel(),
     onBack: () -> Unit
 ) {
-    // Sincronizamos la meta con el ViewModel al entrar
-    LaunchedEffect(targetGoal) {
-        viewModel.setGoal(targetGoal)
+    val context = LocalContext.current
+    val orderRepository = remember { OrderRepository(context) }
+
+    LaunchedEffect(targetGoal, isWeeklyMode, periodId, weekId) {
+        viewModel.setupMode(targetGoal, isWeeklyMode)
+
+        if (isWeeklyMode && periodId != 0 && weekId != 0) {
+            // 2. CAMBIO AL CARGAR (Pasar clientId)
+            val savedProducts = orderRepository.getOrder(periodId, weekId, clientId)
+            if (savedProducts.isNotEmpty()) {
+                viewModel.loadProducts(savedProducts)
+            }
+        }
     }
 
     if (viewModel.distributionResult != null) {
@@ -67,50 +74,137 @@ fun OrderScreen(
             onBack = { viewModel.clearResult() }
         )
     } else {
-        OrderInputView(viewModel, onBack)
+        OrderInputView(
+            viewModel = viewModel,
+            onBack = onBack,
+            periodId = periodId,
+            weekId = weekId,
+            clientId = clientId, // <--- No olvides pasarlo aquí también
+            orderRepository = orderRepository
+        )
     }
 }
 
-// --- VISTA 1: INGRESAR PEDIDOS ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
+fun OrderInputView(
+    viewModel: OrderViewModel,
+    onBack: () -> Unit,
+    periodId: Int,
+    weekId: Int,
+    clientId: String, // <--- AGREGAR ESTO
+    orderRepository: OrderRepository
+) {
     var showCatalog by remember { mutableStateOf(false) }
+    var showSuccessDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showSaveConfirmDialog by remember { mutableStateOf(false) }
+
+    val title = if (viewModel.isWeeklyMode) "Calculadora Semanal" else "Planificador de Periodo"
+
+    val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
+    val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
+
+    // Ahora permitimos proceder si es modo semanal (para poder borrar), o si hay productos en modo periodo
+    val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
 
     Scaffold(
         containerColor = BackgroundWhite,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.calculate_period_order_title)) },
+                title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.back_content_description))
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
+                    }
+                },
+                actions = {
+                    if (viewModel.selectedProducts.isNotEmpty()) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Borrar todo", tint = Color.White)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
                 )
             )
         },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
-                // Botón Calcular
-                if (viewModel.selectedProducts.isNotEmpty()) {
+                if (viewModel.selectedProducts.isNotEmpty() || viewModel.isWeeklyMode) {
                     ExtendedFloatingActionButton(
-                        onClick = { viewModel.calculateDistribution() },
-                        containerColor = Color(0xFF4CAF50), // Verde Fuxion
+                        onClick = {
+                            if (canProceed) {
+                                if (viewModel.isWeeklyMode) {
+                                    // CASO ESPECIAL: Lista vacía = El usuario quiere borrar el pedido
+                                    if (viewModel.selectedProducts.isEmpty()) {
+                                        if (periodId != 0 && weekId != 0) {
+                                            // CAMBIO AQUÍ: Agregamos clientId
+                                            orderRepository.clearOrder(periodId, weekId, clientId)
+                                        }
+                                        onBack()
+                                    } else {
+                                        // CASO NORMAL: Guardar pedido con productos
+                                        if (periodId != 0 && weekId != 0) {
+                                            // CAMBIO AQUÍ: Agregamos clientId
+                                            orderRepository.saveOrder(periodId, weekId, clientId, viewModel.selectedProducts)
+                                        }
+
+                                        if (isWeeklyGoalMet) {
+                                            showSuccessDialog = true
+                                        } else {
+                                            showSaveConfirmDialog = true
+                                        }
+                                    }
+                                } else {
+                                    // MODO PERIODO
+                                    viewModel.onPrincipalActionButtonClick()
+                                }
+                            }
+                        },
+                        // COLORES:
+                        // - Gris: Si está vacío y NO es modo semanal (bloqueado)
+                        // - Naranja: Si es modo semanal y faltan puntos (pero hay productos)
+                        // - Verde: Si está vacío en semanal (CONFIRMAR) o si cumplió meta
+                        containerColor = if (!canProceed && !viewModel.isWeeklyMode) Color.Gray
+                        else if (viewModel.isWeeklyMode && !isWeeklyGoalMet && viewModel.selectedProducts.isNotEmpty()) ProgressOrange
+                        else Color(0xFF4CAF50), // Verde para Listo y para Confirmar Vacío
                         contentColor = Color.White,
                         modifier = Modifier.padding(bottom = 16.dp)
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.calculate_button))
+                        if (viewModel.isWeeklyMode) {
+                            if (viewModel.selectedProducts.isEmpty()) {
+                                // CAMBIO APLICADO: Check + "CONFIRMAR"
+                                Icon(Icons.Default.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("CONFIRMAR") // Simple y directo
+                            } else if (isWeeklyGoalMet) {
+                                Icon(Icons.Default.Check, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("LISTO")
+                            } else {
+                                Icon(Icons.Default.Save, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("GUARDAR AVANCE")
+                            }
+                        } else {
+                            if (canProceed) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("CALCULAR")
+                            } else {
+                                Icon(Icons.Default.Lock, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("VACÍO")
+                            }
+                        }
                     }
                 }
 
-                // Botón Agregar
                 ExtendedFloatingActionButton(
                     onClick = { showCatalog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -119,7 +213,7 @@ fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.add_product_button))
+                    Text("AGREGAR PRODUCTO")
                 }
             }
         }
@@ -129,16 +223,12 @@ fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // --- HEADER GAMIFICADO ---
-            // Calculamos el total actual (Aseguramos Double)
-            val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
-
             GamifiedProgressHeader(
                 currentPoints = totalPoints,
-                targetGoal = viewModel.targetGoal
+                targetGoal = viewModel.targetGoal,
+                isWeekly = viewModel.isWeeklyMode
             )
 
-            // Lista de Productos
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 220.dp),
                 modifier = Modifier.weight(1f)
@@ -151,11 +241,7 @@ fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
                         product = product,
                         quantity = quantity,
                         onInc = { viewModel.incrementQuantity(product) },
-                        onDec = {
-                            if (quantity > 1) {
-                                viewModel.decrementQuantity(product)
-                            }
-                        },
+                        onDec = { if (quantity > 1) viewModel.decrementQuantity(product) },
                         onRemove = { viewModel.removeProduct(product) }
                     )
                 }
@@ -163,28 +249,70 @@ fun OrderInputView(viewModel: OrderViewModel, onBack: () -> Unit) {
         }
     }
 
-    // Modal Catálogo
     if (showCatalog) {
-        val currentIds = remember(viewModel.selectedProducts.size) {
-            viewModel.selectedProducts.map { it.first.id }
-        }
-
+        val currentIds = remember(viewModel.selectedProducts.size) { viewModel.selectedProducts.map { it.first.id } }
         CatalogDialog(
             onDismiss = { showCatalog = false },
-            onProductSelected = { product ->
-                viewModel.addProduct(product)
-            },
+            onProductSelected = { viewModel.addProduct(it) },
             excludedIds = currentIds
         )
     }
 
-    // Diálogo de Carga
+    if (showSuccessDialog) {
+        SuccessDialog(
+            onDismiss = {
+                showSuccessDialog = false
+                onBack()
+            }
+        )
+    }
+
+    if (showSaveConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveConfirmDialog = false },
+            title = { Text("Avance Guardado") },
+            text = { Text("Tus productos se han guardado. Puedes continuar editando más tarde.") },
+            confirmButton = {
+                Button(onClick = {
+                    showSaveConfirmDialog = false
+                    onBack()
+                }) {
+                    Text("Entendido")
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("¿Borrar todo?") },
+            text = { Text("Se eliminarán todos los productos seleccionados de esta semana.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearCart() // Solo limpia la vista
+                        // ELIMINADO: orderRepository.clearOrder(...) -> Ya no borramos aquí directamente
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("Borrar")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     if (viewModel.isLoading) {
         CalculatingDialog()
     }
 }
 
-// --- VISTA 2: RESULTADOS ---
 @Composable
 fun ResultView(result: DistributionResult, onBack: () -> Unit) {
     val totalPoints = result.week1.sumOf { it.totalPoints } +
@@ -202,8 +330,6 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
         containerColor = BackgroundWhite
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
-
-            // CAPA 1: La Lista
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 32.dp),
                 modifier = Modifier
@@ -248,7 +374,6 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
                 }
             }
 
-            // CAPA 2: El Botón Flotante de Volver
             IconButton(
                 onClick = onBack,
                 modifier = Modifier
@@ -265,7 +390,51 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
     }
 }
 
-// --- COMPONENTES AUXILIARES ---
+@Composable
+fun SuccessDialog(onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ThumbUp,
+                    contentDescription = null,
+                    tint = FuxionGreen,
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "¡Semana Completada!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Has alcanzado tu objetivo semanal. ¡Sigue así!",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = FuxionGreen),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("CONTINUAR", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun SubOrderHeader(title: String, items: List<DistributedItem>) {
@@ -324,8 +493,8 @@ fun ProductResultRow(item: DistributedItem) {
                 modifier = Modifier.size(45.dp)
             ) {
                 val context = LocalContext.current
-                val imageResId = remember(item.product.imageRes) { 
-                    ProductCatalog.getXmlImageId(context, item.product.imageRes) 
+                val imageResId = remember(item.product.imageRes) {
+                    ProductCatalog.getXmlImageId(context, item.product.imageRes)
                 }
                 Image(
                     painter = painterResource(id = imageResId),
@@ -402,8 +571,8 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
             verticalAlignment = Alignment.CenterVertically
         ) {
             val context = LocalContext.current
-            val imageResId = remember(product.imageRes) { 
-                ProductCatalog.getXmlImageId(context, product.imageRes) 
+            val imageResId = remember(product.imageRes) {
+                ProductCatalog.getXmlImageId(context, product.imageRes)
             }
             Surface(
                 shape = MaterialTheme.shapes.small,
@@ -454,7 +623,7 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
                     IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.remove_content_description),
+                            contentDescription = "Eliminar",
                             tint = Color(0xFFBDBDBD),
                             modifier = Modifier.size(18.dp)
                         )
@@ -497,25 +666,32 @@ data class ProgressState(
 @Composable
 fun GamifiedProgressHeader(
     currentPoints: Double,
-    targetGoal: Int
+    targetGoal: Int,
+    isWeekly: Boolean
 ) {
-    val goal1 = 540.0
-    val goal2 = targetGoal.toDouble()
+    val goal = targetGoal.toDouble()
 
-    // Lógica de cálculo de estado
-    val state = when {
-        currentPoints < goal1 -> {
+    val state = if (isWeekly) {
+        if (currentPoints < goal) {
+            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
+            val left = goal - currentPoints
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
+        } else {
+            ProgressState(goal, 1.0, "¡Meta Semanal Cumplida! 🎉", FuxionGreen)
+        }
+    } else {
+        val goal1 = 540.0
+        val goal2 = targetGoal.toDouble()
+        if (currentPoints < goal1) {
             val p = (currentPoints / goal1).coerceIn(0.0, 1.0)
             val left = goal1 - currentPoints
-            ProgressState(goal1, p, stringResource(R.string.gamified_progress_missing_fmt, String.format("%.1f", left)), ProgressOrange)
-        }
-        currentPoints < goal2 -> {
+            ProgressState(goal1, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
+        } else if (currentPoints < goal2) {
             val p = ((currentPoints - goal1) / (goal2 - goal1)).coerceIn(0.0, 1.0)
             val left = goal2 - currentPoints
-            ProgressState(goal2, p, stringResource(R.string.gamified_progress_near_pro_fmt, String.format("%.1f", left)), FuxionBlue)
-        }
-        else -> {
-            ProgressState(goal2, 1.0, stringResource(R.string.gamified_progress_max_reached), FuxionGreen)
+            ProgressState(goal2, p, "¡Bien! A ${String.format("%.1f", left)} pts del Nivel PRO", FuxionBlue)
+        } else {
+            ProgressState(goal2, 1.0, "¡IMPARABLE! Meta Máxima Alcanzada 🚀", FuxionGreen)
         }
     }
 
@@ -530,7 +706,7 @@ fun GamifiedProgressHeader(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = stringResource(R.string.your_progress_label),
+                text = "TU PROGRESO",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 fontWeight = FontWeight.Bold,
@@ -545,7 +721,6 @@ fun GamifiedProgressHeader(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            // CORRECCIÓN: 'progress' es un valor Float, no una lambda
             LinearProgressIndicator(
                 progress = state.progress.toFloat(),
                 modifier = Modifier
@@ -558,7 +733,7 @@ fun GamifiedProgressHeader(
             Spacer(modifier = Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (currentPoints >= goal2) Icons.Default.Star else Icons.Default.Info,
+                    imageVector = if (state.progress >= 1.0) Icons.Default.Star else Icons.Default.Info,
                     contentDescription = null,
                     tint = state.color,
                     modifier = Modifier.size(20.dp)
@@ -619,15 +794,12 @@ fun TimelineWeekItem(
     isLast: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // CORRECCIÓN: IntrinsicSize.Min asegura que la columna de la línea
-    // tenga la misma altura que el contenido.
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .height(IntrinsicSize.Min)
     ) {
-        // --- COLUMNA IZQUIERDA: La Línea de Tiempo ---
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
@@ -636,7 +808,6 @@ fun TimelineWeekItem(
                     .border(2.dp, Color.White, CircleShape)
             )
             if (!isLast) {
-                // Ahora 'weight(1f)' funciona porque el padre tiene altura definida
                 Box(
                     modifier = Modifier
                         .width(2.dp)
@@ -648,7 +819,6 @@ fun TimelineWeekItem(
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        // --- COLUMNA DERECHA: El Contenido ---
         Column(modifier = Modifier.padding(bottom = 32.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -701,14 +871,14 @@ fun CalculatingDialog() {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = stringResource(R.string.analyzing_strategies_title),
+                    text = "Analizando Estrategias...",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = stringResource(R.string.optimizing_points_message),
+                    text = "Optimizando tus puntos para la meta",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
