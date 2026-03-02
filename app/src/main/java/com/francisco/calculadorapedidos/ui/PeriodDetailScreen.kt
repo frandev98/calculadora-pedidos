@@ -39,7 +39,8 @@ fun PeriodDetailScreen(
     periodId: Int,
     dataStore: FuxionDataStore,
     onBack: () -> Unit,
-    onWeekClick: (Int, Int) -> Unit
+    onWeekClick: (Int, Int) -> Unit,
+    onPlanFullPeriodClick: (Int) -> Unit // <--- NUEVO CALLBACK
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
@@ -211,6 +212,31 @@ fun PeriodDetailScreen(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
+            // --- NUEVO: ACCESO SECUNDARIO A PLANIFICADOR GLOBAL ---
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = { onPlanFullPeriodClick(targetGoal) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, FuxionBlue)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoGraph,
+                    contentDescription = null,
+                    tint = FuxionBlue
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Planificar Periodo Completo",
+                    color = FuxionBlue,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            Spacer(modifier = Modifier.height(32.dp)) // Margen inferior
         }
     }
 

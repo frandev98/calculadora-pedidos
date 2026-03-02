@@ -88,9 +88,13 @@ class MainActivity : ComponentActivity() {
                                 periodId = periodId,
                                 dataStore = dataStore,
                                 onBack = { navController.popBackStack() },
-                                // ALERTA: Ahora al tocar una semana vamos a la GESTIÓN, no directo a la orden
                                 onWeekClick = { weekId, goal ->
                                     navController.navigate("week_management/$periodId/$weekId/$goal")
+                                },
+                                // --- NUEVO: ENRUTAMIENTO AL MODO GLOBAL ---
+                                onPlanFullPeriodClick = { goal ->
+                                    // isWeeklyMode = false, weekId = 0, clientId = "global"
+                                    navController.navigate("order_screen/$goal/false/$periodId/0/global")
                                 }
                             )
                         }
