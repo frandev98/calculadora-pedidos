@@ -4,23 +4,48 @@ import java.util.Calendar
 import java.util.Date
 import java.util.concurrent.TimeUnit
 
-/**
- * Lógica pura para el calendario Fuxion.
- * Se basa en una "Fecha Ancla" (Inicio del Periodo 1) para calcular matemáticamente
- * en qué punto del ciclo estamos.
- *
- * Reglas:
- * - 1 Año Fuxion = 13 Periodos (o más, pero el ciclo base es de 13)
- * - 1 Periodo = 4 Semanas
- * - 1 Semana = 7 Días
- * - Total ciclo base: 13 * 4 * 7 = 364 días.
- *
- * Nota: Fuxion a veces tiene "Semana 53" o ajustes por feriados.
- * Esta clase maneja la lógica ESTÁNDAR. Las excepciones se manejarán
- * permitiendo editar manualmente las fechas en la UI.
- */
+// Definición estructural de la ranura de cliente
+data class WeeklySlotDef(val slotId: String, val clientId: String, val targetPoints: Int)
 object FuxionCalendarLogic {
+// --- NUEVO: MOTOR DE MATRIZ PRO 500 (CICLO 13 SEMANAS) ---
 
+    fun getAbsoluteWeek(periodId: Int, weekIndex: Int): Int {
+        // Asumiendo periodos de 4 semanas continuas
+        return ((periodId - 1) * 4) + weekIndex
+    }
+
+    fun getCycleWeek(absoluteWeek: Int): Int {
+        val cycle = absoluteWeek % 13
+        return if (cycle == 0) 13 else cycle
+    }
+
+    fun getSlotsForWeek(periodId: Int, weekIndex: Int): List<WeeklySlotDef> {
+        val absWeek = getAbsoluteWeek(if (periodId > 0) periodId else 1, weekIndex)
+        val cycleWeek = getCycleWeek(absWeek)
+
+        return when (cycleWeek) {
+            1, 5, 9 -> listOf(
+                WeeklySlotDef("A", "Cliente 1", 60),
+                WeeklySlotDef("B", "Cliente 2", 65)
+            )
+            2, 6, 10 -> listOf(
+                WeeklySlotDef("A", "Cliente 3", 60),
+                WeeklySlotDef("B", "Cliente 4", 65)
+            )
+            3, 7, 11 -> listOf(
+                WeeklySlotDef("A", "Cliente 5", 60),
+                WeeklySlotDef("B", "Cliente 6", 65)
+            )
+            4, 8, 12 -> listOf(
+                WeeklySlotDef("A", "Cliente 7", 60),
+                WeeklySlotDef("B", "Cliente 8", 65)
+            )
+            13 -> listOf(
+                WeeklySlotDef("U", "Cliente 9", 125)
+            )
+            else -> emptyList()
+        }
+    }
     data class FuxionStatus(
         val period: Int,        // 1..13
         val week: Int,          // 1..4

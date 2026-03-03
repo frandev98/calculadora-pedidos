@@ -57,10 +57,10 @@ fun OrderScreen(
     val orderRepository = remember { OrderRepository(context) }
 
     LaunchedEffect(targetGoal, isWeeklyMode, periodId, weekId) {
-        viewModel.setupMode(targetGoal, isWeeklyMode)
+        // CORRECCIÓN: Se añade 'periodId' como tercer argumento
+        viewModel.setupMode(targetGoal, isWeeklyMode, periodId)
 
         if (isWeeklyMode && periodId != 0 && weekId != 0) {
-            // 2. CAMBIO AL CARGAR (Pasar clientId)
             val savedProducts = orderRepository.getOrder(periodId, weekId, clientId)
             if (savedProducts.isNotEmpty()) {
                 viewModel.loadProducts(savedProducts)
@@ -315,60 +315,23 @@ fun OrderInputView(
 
 @Composable
 fun ResultView(result: DistributionResult, onBack: () -> Unit) {
-    val totalPoints = result.week1.sumOf { it.totalPoints } +
-            result.week2.sumOf { it.totalPoints } +
-            result.week3.sumOf { it.totalPoints } +
-            (result.week4.subOrder1.sumOf { it.totalPoints } +
-                    result.week4.subOrder2.sumOf { it.totalPoints } +
-                    result.week4.subOrder3.sumOf { it.totalPoints })
-
-    val week4Total = result.week4.subOrder1.sumOf { it.totalPoints } +
-            result.week4.subOrder2.sumOf { it.totalPoints } +
-            result.week4.subOrder3.sumOf { it.totalPoints }
-
-    Scaffold(
-        containerColor = BackgroundWhite
-    ) { padding ->
+    Scaffold(containerColor = BackgroundWhite) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 32.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = padding.calculateBottomPadding())
+                modifier = Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())
             ) {
-                item { StrategicResultHeader(totalPoints = totalPoints) }
+                item { StrategicResultHeader(totalPoints = result.globalPoints, isPerfect = result.isPerfectFit) }
 
-                item {
-                    TimelineWeekItem(stringResource(R.string.week_1_title), result.week1.sumOf { it.totalPoints }) {
-                        result.week1.forEach { ProductResultRow(it) }
-                    }
-                }
+                val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
 
-                item {
-                    TimelineWeekItem(stringResource(R.string.week_2_title), result.week2.sumOf { it.totalPoints }) {
-                        result.week2.forEach { ProductResultRow(it) }
-                    }
-                }
-
-                item {
-                    TimelineWeekItem(stringResource(R.string.week_3_title), result.week3.sumOf { it.totalPoints }) {
-                        result.week3.forEach { ProductResultRow(it) }
-                    }
-                }
-
-                item {
-                    TimelineWeekItem(stringResource(R.string.week_4_title), week4Total, isLast = true) {
-                        if (result.week4.subOrder1.isNotEmpty()) {
-                            SubOrderHeader(stringResource(R.string.suborder_1_title), result.week4.subOrder1)
-                            result.week4.subOrder1.forEach { ProductResultRow(it) }
-                        }
-                        if (result.week4.subOrder2.isNotEmpty()) {
-                            SubOrderHeader(stringResource(R.string.suborder_2_title), result.week4.subOrder2)
-                            result.week4.subOrder2.forEach { ProductResultRow(it) }
-                        }
-                        if (result.week4.subOrder3.isNotEmpty()) {
-                            SubOrderHeader(stringResource(R.string.suborder_3_title), result.week4.subOrder3)
-                            result.week4.subOrder3.forEach { ProductResultRow(it) }
+                weeks.forEach { week ->
+                    item {
+                        TimelineWeekItem("Semana ${week.weekIndex}", week.totalPoints, isLast = week.weekIndex == 4) {
+                            week.slots.forEach { slot ->
+                                SubOrderHeader("${slot.clientId} (Meta: ${slot.targetPoints})", slot.achievedPoints)
+                                slot.items.forEach { ProductResultRow(it) }
+                            }
                         }
                     }
                 }
@@ -376,17 +339,31 @@ fun ResultView(result: DistributionResult, onBack: () -> Unit) {
 
             IconButton(
                 onClick = onBack,
-                modifier = Modifier
-                    .padding(top = 16.dp, start = 8.dp)
-                    .align(Alignment.TopStart)
+                modifier = Modifier.padding(top = 16.dp, start = 8.dp).align(Alignment.TopStart)
             ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = stringResource(R.string.back_content_description),
-                    tint = Color.White
-                )
+                Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
             }
         }
+    }
+}
+
+@Composable
+fun SubOrderHeader(title: String, achievedPoints: Double) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 8.dp, start = 16.dp, end = 16.dp)
+            .background(Color(0xFFEEEEEE), shape = MaterialTheme.shapes.small)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF616161), modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(text = title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF424242))
+        }
+        Text(text = "$achievedPoints pts", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color(0xFF424242))
     }
 }
 
@@ -751,10 +728,10 @@ fun GamifiedProgressHeader(
 }
 
 @Composable
-fun StrategicResultHeader(totalPoints: Double) {
-    val isPro = totalPoints >= 645
-    val color = if (isPro) FuxionGreen else FuxionBlue
-    val title = if (isPro) stringResource(R.string.strategy_pro_level) else stringResource(R.string.strategy_base_goal)
+fun StrategicResultHeader(totalPoints: Double, isPerfect: Boolean) {
+    val color = if (isPerfect) FuxionGreen else ProgressOrange
+    val title = if (isPerfect) "Planificación Exacta" else "Inventario Inexacto"
+    val subtitle = if (isPerfect) "Tus productos encajan perfectamente en la matriz PRO 500." else "Se aplicó llenado aproximado. Revisa las cantidades."
 
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
@@ -766,7 +743,7 @@ fun StrategicResultHeader(totalPoints: Double) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                imageVector = Icons.Default.CheckCircle,
+                imageVector = if (isPerfect) Icons.Default.CheckCircle else Icons.Default.Warning,
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.size(48.dp)
@@ -779,10 +756,24 @@ fun StrategicResultHeader(totalPoints: Double) {
                 color = Color.White
             )
             Text(
-                text = stringResource(R.string.total_accumulated_fmt, totalPoints),
-                style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.9f)
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.9f),
+                textAlign = TextAlign.Center
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                color = Color.Black.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(50)
+            ) {
+                Text(
+                    text = "Total: $totalPoints pts",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
         }
     }
 }

@@ -1,36 +1,37 @@
 package com.francisco.calculadorapedidos.data
 
-/**
- * Representa UN item ya asignado a una semana.
- * Ejemplo: "3 unidades de Prunex1 para la Semana 1"
- */
+data class DistributionResult(
+    val week1: WeeklyAllocation = WeeklyAllocation(1),
+    val week2: WeeklyAllocation = WeeklyAllocation(2),
+    val week3: WeeklyAllocation = WeeklyAllocation(3),
+    val week4: WeeklyAllocation = WeeklyAllocation(4),
+    val globalPoints: Double = 0.0,
+    val globalMoney: Double = 0.0,
+    val isPerfectFit: Boolean = false
+)
+
+data class WeeklyAllocation(
+    val weekIndex: Int,
+    val slots: List<SlotAllocation> = emptyList()
+) {
+    val totalPoints: Double get() = slots.sumOf { it.achievedPoints }
+}
+
+data class SlotAllocation(
+    val slotId: String,
+    val clientId: String,
+    val targetPoints: Int,
+    val items: List<DistributedItem>
+) {
+    val achievedPoints: Double get() = items.sumOf { it.totalPoints }
+}
+
+// --- CLASE RESTAURADA ---
+// Es imperativo que esta entidad exista para que la vista y las asignaciones funcionen.
 data class DistributedItem(
     val product: Product,
     val quantity: Int,
     val totalPoints: Double,
-    val totalMoney: Double,
-    val tag: String = "" // Para etiquetas como "[P1] (Extra)"
-)
-
-/**
- * El resultado final completo.
- * Contiene la lista de cosas para cada semana.
- */
-data class DistributionResult(
-    val week1: List<DistributedItem> = emptyList(),
-    val week2: List<DistributedItem> = emptyList(),
-    val week3: List<DistributedItem> = emptyList(),
-
-    // La semana 4 es especial, tiene sub-pedidos (P1, P2, P3)
-    val week4: Week4Result = Week4Result(),
-
-    val globalPoints: Double = 0.0,
-    val globalMoney: Double = 0.0
-)
-
-data class Week4Result(
-    val subOrder1: List<DistributedItem> = emptyList(), // P1
-    val subOrder2: List<DistributedItem> = emptyList(), // P2
-    val subOrder3: List<DistributedItem> = emptyList(), // P3
-    val extras: List<DistributedItem> = emptyList()     // Sobrantes
+    val totalPrice: Double,
+    val tag: String = ""
 )

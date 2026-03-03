@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.francisco.calculadorapedidos.data.DistributionConfig
 import com.francisco.calculadorapedidos.data.DistributionResult
 import com.francisco.calculadorapedidos.data.Product
 import com.francisco.calculadorapedidos.logic.DistributionCalculator
@@ -17,7 +16,6 @@ import kotlinx.coroutines.withContext
 
 class OrderViewModel : ViewModel() {
 
-    // --- ESTADO ---
     private val _selectedProducts = mutableStateListOf<Pair<Product, Int>>()
     val selectedProducts: List<Pair<Product, Int>> get() = _selectedProducts
 
@@ -30,21 +28,23 @@ class OrderViewModel : ViewModel() {
     var targetGoal by mutableStateOf(540)
         private set
 
-    // NUEVO: Saber si es modo semanal
     var isWeeklyMode by mutableStateOf(false)
+        private set
+
+    // Estado del periodo para el motor PRO 500
+    var currentPeriodId by mutableStateOf(1)
         private set
 
     private val distributionCalculator = DistributionCalculator()
 
-    // --- CONFIGURACIÓN ---
-    fun setupMode(goal: Int, isWeekly: Boolean) {
+    // Firma actualizada para recibir periodId
+    fun setupMode(goal: Int, isWeekly: Boolean, periodId: Int) {
         targetGoal = goal
         isWeeklyMode = isWeekly
-        // Limpiamos resultados previos si cambiamos de modo
+        currentPeriodId = periodId
         distributionResult = null
     }
 
-    // --- GESTIÓN DE PRODUCTOS (Reutilizada) ---
     fun addProduct(product: Product) {
         val existingIndex = _selectedProducts.indexOfFirst { it.first.id == product.id }
         if (existingIndex != -1) {
@@ -77,7 +77,6 @@ class OrderViewModel : ViewModel() {
         _selectedProducts.removeAll { it.first.id == product.id }
     }
 
-    // --- NUEVA FUNCIÓN: LIMPIAR CARRITO ---
     fun clearCart() {
         _selectedProducts.clear()
     }
@@ -86,25 +85,19 @@ class OrderViewModel : ViewModel() {
         distributionResult = null
     }
 
-    // --- LÓGICA DE ACCIÓN PRINCIPAL ---
     fun onPrincipalActionButtonClick() {
-        if (isWeeklyMode) {
-            // LÓGICA SEMANAL: Aquí podrías guardar en base de datos o simplemente mostrar confirmación
-            // Por ahora, no hacemos cálculo complejo, quizás solo un mensaje de éxito.
-            // (Para este MVP, no haremos nada complejo aquí, la UI manejará la visualización)
-        } else {
-            // LÓGICA PERIODO: Ejecuta el algoritmo de distribución
+        if (!isWeeklyMode) {
             calculateDistribution()
         }
     }
 
     private fun calculateDistribution() {
         isLoading = true
-        val config = DistributionConfig(targetPoints = targetGoal.toDouble())
 
+        // Ejecución delegada al nuevo calculador combinatorio inyectando el periodId
         viewModelScope.launch(Dispatchers.Default) {
             delay(1000)
-            val result = distributionCalculator.calculate(_selectedProducts, config)
+            val result = distributionCalculator.calculate(_selectedProducts, currentPeriodId)
             withContext(Dispatchers.Main) {
                 distributionResult = result
                 isLoading = false

@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -36,30 +35,24 @@ import java.util.*
 fun YearOverviewScreen(
     dataStore: FuxionDataStore,
     onPeriodClick: (Int) -> Unit,
-    onSettingsClick: () -> Unit, // Este volverá a ser para el Calendario/Ajustes
-    onClientsClick: () -> Unit   // Este será NUEVO para tus Socios
+    onSettingsClick: () -> Unit,
+    onClientsClick: () -> Unit
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
-    // Estado para almacenar los resúmenes de puntos por periodo
-    // Usamos un Map: Clave = PeriodId, Valor = Puntos Totales
+    // Estado único para almacenar los resúmenes de puntos por periodo
     var periodPointsMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
-    var periodGoalsMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
 
-    // Obtenemos la fecha ancla
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
 
-    // Cargamos los datos de progreso cada vez que entramos a la pantalla
+    // Cargamos los datos de progreso de forma optimizada
     LaunchedEffect(Unit) {
         val newPointsMap = mutableMapOf<Int, Int>()
-        val newGoalsMap = mutableMapOf<Int, Int>()
         for (i in 1..13) {
             newPointsMap[i] = orderRepository.getPeriodTotalPoints(i)
-            newGoalsMap[i] = orderRepository.getPeriodGoal(i)
         }
         periodPointsMap = newPointsMap
-        periodGoalsMap = newGoalsMap
     }
 
     if (anchorDate == null) {
@@ -78,12 +71,9 @@ fun YearOverviewScreen(
             TopAppBar(
                 title = { Text("Mi Plan Anual Fuxion") },
                 actions = {
-                    // BOTÓN 1: MIS SOCIOS (Icono de Personas)
                     IconButton(onClick = onClientsClick) {
                         Icon(Icons.Default.People, contentDescription = "Mis Socios", tint = Color.White)
                     }
-
-                    // BOTÓN 2: CONFIGURACIÓN / CALENDARIO (Icono de Engranaje)
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Default.Settings, contentDescription = "Configuración", tint = Color.White)
                     }
@@ -120,7 +110,7 @@ fun YearOverviewScreen(
                             Spacer(Modifier.width(6.dp))
                             Text(todayFormat.format(today).uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         }
-                        Divider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
                         Spacer(Modifier.height(20.dp))
 
                         Row(
@@ -171,16 +161,16 @@ fun YearOverviewScreen(
                 val (start, end) = FuxionCalendarLogic.getPeriodDates(anchor, periodNum)
                 val isCurrent = (periodNum == status.period)
 
-                // Datos de Progreso
+                // LECTURA ESTRICTA PRO 500
                 val totalPoints = periodPointsMap[periodNum] ?: 0
-                val goal = periodGoalsMap[periodNum] ?: 540
+                val targetGoal = 500 // Constante inmutable inyectada
 
                 PeriodCard(
                     periodNumber = periodNum,
                     dateRange = "${rangeFormat.format(start)} - ${rangeFormat.format(end)}",
                     isCurrent = isCurrent,
                     currentPoints = totalPoints,
-                    goalPoints = goal,
+                    goalPoints = targetGoal,
                     onClick = { onPeriodClick(periodNum) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -221,7 +211,6 @@ fun PeriodCard(
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Icono de Calendario
             Icon(
                 Icons.Default.DateRange,
                 contentDescription = null,
@@ -231,7 +220,6 @@ fun PeriodCard(
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Información Central
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -249,7 +237,6 @@ fun PeriodCard(
                 Spacer(Modifier.height(4.dp))
                 Text(dateRange, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
 
-                // BARRA DE PROGRESO (Solo si hay puntos)
                 if (currentPoints > 0) {
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -264,7 +251,7 @@ fun PeriodCard(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "$currentPoints/$goalPoints",
+                            "$currentPoints / $goalPoints pts",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (isCompleted) FuxionGreen else TextSecondary
@@ -273,18 +260,15 @@ fun PeriodCard(
                 }
             }
 
-            // Icono de Estado a la derecha
             Spacer(Modifier.width(8.dp))
             if (isCompleted) {
-                // Si completó: Estrella Dorada/Verde
                 Icon(
                     Icons.Default.Star,
                     contentDescription = "Completado",
-                    tint = Color(0xFFFFB300), // Dorado
+                    tint = Color(0xFFFFB300),
                     modifier = Modifier.size(24.dp)
                 )
             } else {
-                // Si no: Flecha normal
                 Icon(
                     Icons.Default.ChevronRight,
                     contentDescription = null,
