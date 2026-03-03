@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
@@ -36,11 +37,10 @@ import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-
 fun CatalogDialog(
     onDismiss: () -> Unit,
     onProductSelected: (Product) -> Unit,
-    excludedIds: List<Int> // <--- 1. NUEVO PARÁMETRO
+    excludedIds: List<Int>
 ) {
     // --- ESTADOS LOCALES ---
     var searchQuery by remember { mutableStateOf("") }
@@ -51,19 +51,14 @@ fun CatalogDialog(
         listOf("TODOS") + ProductCatalog.masterList.map { it.category }.distinct().sorted()
     }
 
-    // --- LÓGICA DE FILTRADO (ACTUALIZADA) ---
-    // Ahora depende también de 'excludedIds'
+    // --- LÓGICA DE FILTRADO ---
     val filteredList = remember(searchQuery, selectedCategory, excludedIds) {
         ProductCatalog.masterList.filter { product ->
-            // A. Verificamos que NO esté en la lista de excluidos
             val isNotExcluded = !excludedIds.contains(product.id)
-
-            // B. Filtros normales (Categoría y Texto)
             val matchCategory = selectedCategory == null || product.category == selectedCategory
             val matchSearch = product.name.contains(searchQuery, ignoreCase = true) ||
                     product.code.contains(searchQuery, ignoreCase = true)
 
-            // C. Solo pasa si cumple TODO
             isNotExcluded && matchCategory && matchSearch
         }
     }
@@ -72,114 +67,130 @@ fun CatalogDialog(
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
-            usePlatformDefaultWidth = false // ¡ESTO HACE QUE OCUPE TODA LA PANTALLA!
+            usePlatformDefaultWidth = false // Ocupa toda la pantalla
         )
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            // Usamos un Box para poder superponer el botón flotante al fondo
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
 
-                // 1. ENCABEZADO (Título + Botón Cerrar)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp, start = 24.dp, end = 8.dp), // Márgenes ajustados
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Catálogo de Productos",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.Gray)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 2. BUSCADOR (ESTILO NUEVO "SOFT CAPSULE")
-                // Reemplazamos el OutlinedTextField por este TextField moderno
-                TextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp) // Margen lateral para que no choque
-                        .height(50.dp), // Altura compacta
-                    placeholder = {
-                        Text("Buscar producto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = FuxionBlue)
-                    },
-                    shape = RoundedCornerShape(50), // Bordes totalmente redondos
-                    colors = TextFieldDefaults.colors(
-                        focusedIndicatorColor = Color.Transparent, // Sin línea abajo
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                        focusedContainerColor = Color(0xFFF0F5F9), // Gris azulado suave
-                        unfocusedContainerColor = Color(0xFFF0F5F9)
-                    ),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 3. CHIPS DE CATEGORÍAS (Tus filtros originales)
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 24.dp), // Alineado con el buscador
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(categories) { category ->
-                        val isSelected = (category == "TODOS" && selectedCategory == null) || category == selectedCategory
-
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                selectedCategory = if (category == "TODOS") null else category
-                            },
-                            label = { Text(category) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = FuxionBlue, // Usamos el azul corporativo al seleccionar
-                                selectedLabelColor = Color.White,
-                                containerColor = Color.White,
-                                labelColor = TextPrimary
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                enabled = true,
-                                selected = isSelected,
-                                borderColor = if (isSelected) FuxionBlue else Color.LightGray
-                            )
+                    // 1. ENCABEZADO
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, start = 24.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Catálogo de Productos",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color.Gray)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 2. BUSCADOR
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .height(50.dp),
+                        placeholder = {
+                            Text("Buscar producto...", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = FuxionBlue)
+                        },
+                        shape = RoundedCornerShape(50),
+                        colors = TextFieldDefaults.colors(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            disabledIndicatorColor = Color.Transparent,
+                            focusedContainerColor = Color(0xFFF0F5F9),
+                            unfocusedContainerColor = Color(0xFFF0F5F9)
+                        ),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 3. CHIPS DE CATEGORÍAS
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(categories) { category ->
+                            val isSelected = (category == "TODOS" && selectedCategory == null) || category == selectedCategory
+
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedCategory = if (category == "TODOS") null else category
+                                },
+                                label = { Text(category) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = FuxionBlue,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color.White,
+                                    labelColor = TextPrimary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
+                                    borderColor = if (isSelected) FuxionBlue else Color.LightGray
+                                )
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(top = 16.dp),
+                        color = Color(0xFFEEEEEE)
+                    )
+
+                    // 4. LISTA DE PRODUCTOS
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        // Aumentamos el padding inferior a 80.dp para que el último producto no quede tapado por el botón "Listo"
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
+                    ) {
+                        items(filteredList) { product ->
+                            ProductCatalogRow(product = product, onSelect = {
+                                // 1. Agregamos el producto al carrito principal
+                                onProductSelected(product)
+
+                                // 2. ¡ELIMINADO! Ya no llamamos a onDismiss() aquí para que no se cierre la pantalla.
+                            })
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                     }
                 }
 
-                // Línea divisoria sutil
-                Divider(
-                    modifier = Modifier.padding(top = 16.dp),
-                    color = Color(0xFFEEEEEE)
-                )
-
-                // 4. LISTA DE PRODUCTOS
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp)
+                // --- NUEVO: BOTÓN FLOTANTE DE "LISTO" ---
+                ExtendedFloatingActionButton(
+                    onClick = { onDismiss() }, // Este es el que ahora cierra la pantalla
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp),
+                    containerColor = FuxionGreen,
+                    contentColor = Color.White,
+                    elevation = FloatingActionButtonDefaults.elevation(8.dp)
                 ) {
-                    items(filteredList) { product ->
-                        ProductCatalogRow(product = product, onSelect = {
-                            // 1. Agregamos el producto
-                            onProductSelected(product)
-
-                            // 2. ¡IMPORTANTE! Cerramos el diálogo (Quitamos las barras //)
-                            onDismiss()
-                        })
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+                    Icon(Icons.Default.Check, contentDescription = "Listo")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("TERMINAR Y REVISAR", fontWeight = FontWeight.Bold)
                 }
             }
         }

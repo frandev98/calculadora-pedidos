@@ -37,7 +37,11 @@ fun WeekManagementScreen(
     val clientRepository = remember { ClientRepository(context) } // INYECCIÓN DE REPOSITORIO
 
     val slots = remember(periodId, weekId) { FuxionCalendarLogic.getSlotsForWeek(periodId, weekId) }
-    val totalWeekTarget = remember(slots) { slots.sumOf { it.targetPoints } }
+    // Si la semana tiene más de 1 cliente (A y B), la meta de la semana es 125.
+    // Si solo tiene 1 (Semana 13), es la meta de ese cliente (125).
+    val totalWeekTarget = remember(slots) {
+        if (slots.size > 1) 125 else slots.firstOrNull()?.targetPoints ?: 125
+    }
 
     var clientProgress by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var currentWeekPoints by remember { mutableIntStateOf(0) }
