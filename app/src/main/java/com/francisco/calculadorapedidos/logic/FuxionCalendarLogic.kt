@@ -5,7 +5,8 @@ import java.util.Date
 import java.util.concurrent.TimeUnit
 
 // Definición estructural de la ranura de cliente
-data class WeeklySlotDef(val slotId: String, val clientId: String, val targetPoints: Int)
+// NUEVA ESTRUCTURA DE LA RANURA
+data class WeeklySlotDef(val slotId: String, val fixedIndex: Int, val fallbackName: String, val targetPoints: Int)
 object FuxionCalendarLogic {
 // --- NUEVO: MOTOR DE MATRIZ PRO 500 (CICLO 13 SEMANAS) ---
 
@@ -19,29 +20,30 @@ object FuxionCalendarLogic {
         return if (cycle == 0) 13 else cycle
     }
 
+    // REEMPLAZO DE LA FUNCIÓN DE MATRIZ
     fun getSlotsForWeek(periodId: Int, weekIndex: Int): List<WeeklySlotDef> {
         val absWeek = getAbsoluteWeek(if (periodId > 0) periodId else 1, weekIndex)
         val cycleWeek = getCycleWeek(absWeek)
 
         return when (cycleWeek) {
             1, 5, 9 -> listOf(
-                WeeklySlotDef("A", "Cliente 1", 60),
-                WeeklySlotDef("B", "Cliente 2", 65)
+                WeeklySlotDef("A", 1, "Cliente 1", 60),
+                WeeklySlotDef("B", 2, "Cliente 2", 65)
             )
             2, 6, 10 -> listOf(
-                WeeklySlotDef("A", "Cliente 3", 60),
-                WeeklySlotDef("B", "Cliente 4", 65)
+                WeeklySlotDef("A", 3, "Cliente 3", 60),
+                WeeklySlotDef("B", 4, "Cliente 4", 65)
             )
             3, 7, 11 -> listOf(
-                WeeklySlotDef("A", "Cliente 5", 60),
-                WeeklySlotDef("B", "Cliente 6", 65)
+                WeeklySlotDef("A", 5, "Cliente 5", 60),
+                WeeklySlotDef("B", 6, "Cliente 6", 65)
             )
             4, 8, 12 -> listOf(
-                WeeklySlotDef("A", "Cliente 7", 60),
-                WeeklySlotDef("B", "Cliente 8", 65)
+                WeeklySlotDef("A", 7, "Cliente 7", 60),
+                WeeklySlotDef("B", 8, "Cliente 8", 65)
             )
             13 -> listOf(
-                WeeklySlotDef("U", "Cliente 9", 125)
+                WeeklySlotDef("U", 9, "Cliente 9", 125)
             )
             else -> emptyList()
         }

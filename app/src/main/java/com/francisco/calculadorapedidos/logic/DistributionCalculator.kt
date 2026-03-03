@@ -140,7 +140,9 @@ class DistributionCalculator {
             defs.map { def ->
                 val req = assignment.keys.find { it.weekIndex == weekIndex && it.def.slotId == def.slotId }
                 val items = if (req != null) assignment[req] ?: emptyList() else emptyList()
-                SlotAllocation(def.slotId, def.clientId, def.targetPoints, items)
+
+                // CORRECCIÓN APLICADA: Se utiliza fallbackName en lugar del obsoleto clientId
+                SlotAllocation(def.slotId, def.fallbackName, def.targetPoints, items)
             }
         }
 
