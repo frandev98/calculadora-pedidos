@@ -1,5 +1,6 @@
 package com.francisco.calculadorapedidos.ui
 
+import com.francisco.calculadorapedidos.data.FuxionDataStore
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,7 +19,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite

@@ -21,6 +21,8 @@ import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.*
+import com.francisco.calculadorapedidos.data.FuxionDataStore
+import com.francisco.calculadorapedidos.ui.ClientViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
