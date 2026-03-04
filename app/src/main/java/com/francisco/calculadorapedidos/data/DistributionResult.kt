@@ -19,7 +19,8 @@ data class WeeklyAllocation(
 
 data class SlotAllocation(
     val slotId: String,
-    val clientId: String,
+    val clientId: String, // String visual (fallbackName)
+    val fixedIndex: Int,  // NUEVO: Índice matemático (1-27) para cruce relacional
     val targetPoints: Int,
     val items: List<DistributedItem>
 ) {

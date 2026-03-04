@@ -33,6 +33,8 @@ import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
+import com.francisco.calculadorapedidos.ui.theme.TextPrimary
+import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -133,108 +135,92 @@ fun ClientListScreen(
 @Composable
 fun FixedStrategyGrid(
     clients: List<Client>,
-    onSlotClick: (Int, Client?) -> Unit
+    onSlotClick: (Int, Client) -> Unit
 ) {
-    // Definimos las fases para agrupar visualmente
-    val phases = listOf(
-        Triple("Fase 1: Cimientos", 1, 9),
-        Triple("Fase 2: Construcción", 10, 18),
-        Triple("Fase 3: Expansión", 19, 27)
-    )
+    // Ordenamiento estricto por índice matemático para garantizar la correlación con la Matriz PRO 500
+    val sortedClients = clients.sortedBy { it.fixedIndex }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 80.dp) // Espacio para el FAB
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxSize()
     ) {
-        phases.forEach { (title, start, end) ->
-            // Cabecera de la Fase
-            item {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = FuxionBlue,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFF5F5F5))
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                )
-            }
-
-            // Grid de esa fase (3 filas de 3)
-            item {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    for (row in 0 until 3) { // 3 filas por fase
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            for (col in 0 until 3) { // 3 columnas
-                                val index = start + (row * 3) + col
-                                if (index <= end) {
-                                    val client = clients.find { it.fixedIndex == index }
-                                    Box(Modifier.weight(1f)) {
-                                        ClientSlotCard(
-                                            position = index,
-                                            client = client,
-                                            onClick = { onSlotClick(index, client) }
-                                        )
-                                    }
-                                } else {
-                                    Spacer(Modifier.weight(1f))
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(12.dp)) // Espacio entre filas
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ClientSlotCard(
-    position: Int,
-    client: Client?,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .clickable { onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = if (client != null) Color(0xFFE8F5E9) else Color(0xFFF5F5F5)
-        ),
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (client != null) FuxionGreen else Color.LightGray)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        item {
             Text(
-                text = "#$position",
-                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (client != null) FuxionGreen else Color.Gray,
-                fontWeight = FontWeight.Bold
+                text = "Matriz Base PRO 500 (13 Semanas)",
+                style = MaterialTheme.typography.titleMedium,
+                color = FuxionBlue,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
             )
-            Column(
-                modifier = Modifier.align(Alignment.Center).padding(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+        }
+
+        items(sortedClients, key = { it.fixedIndex ?: it.id }) { client ->
+            val index = client.fixedIndex ?: return@items
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSlotClick(index, client) },
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(2.dp)
             ) {
-                if (client != null) {
-                    Icon(Icons.Default.Person, null, tint = FuxionGreen)
-                    Text(
-                        client.name,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        textAlign = TextAlign.Center,
-                        overflow = TextOverflow.Ellipsis
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // AVATAR POSICIONAL: Indicador numérico estricto
+                    Surface(
+                        color = Color(0xFFE8F5E9),
+                        shape = CircleShape,
+                        modifier = Modifier.size(48.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, FuxionGreen)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "#$index",
+                                fontWeight = FontWeight.Bold,
+                                color = FuxionGreen,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(16.dp))
+
+                    // METADATOS EXPUESTOS
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = client.name,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        if (client.email.isNotBlank()) {
+                            Text(
+                                text = "Login: ${client.email}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        } else {
+                            Text(
+                                text = "Requiere configuración",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Red
+                            )
+                        }
+                    }
+
+                    // VECTOR DE EDICIÓN
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Editar Cliente",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(20.dp)
                     )
-                } else {
-                    Icon(Icons.Default.Add, null, tint = Color.Gray)
-                    Text("Vacío", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             }
         }
+        item { Spacer(Modifier.height(80.dp)) } // Espacio para FAB subyacente
     }
 }
 

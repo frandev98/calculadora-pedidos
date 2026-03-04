@@ -33,18 +33,22 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeriodDetailScreen(
+    year: Int, // Coordenada interanual obligatoria
     periodId: Int,
-    dataStore: FuxionDataStore,
+    dataStore: FuxionDataStore, // INYECCIÓN OBLIGATORIA: Requerido para leer el AnchorDate
     onBack: () -> Unit,
-    onWeekClick: (Int, Int) -> Unit,
-    onPlanFullPeriodClick: (Int) -> Unit
+    onNavigateToWeek: (Int) -> Unit, // Homologado
+    onNavigateToFullPlan: () -> Unit // INYECCIÓN OBLIGATORIA: Requerido para el botón de planificar periodo
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
-    var refreshTrigger by remember { mutableStateOf(0) }
+    val refreshTrigger by remember { mutableStateOf(0) }
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
+    // LECTURA REACTIVA: Extracción del periodo de inicio
+    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
 
-    if (anchorDate == null) {
+    // BLOQUEO ESTRUCTURAL: Previene ejecución con matriz nula
+    if (anchorDate == null || userStartPeriod == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
@@ -63,7 +67,7 @@ fun PeriodDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Periodo $periodId") },
+                title = { Text("Periodo $periodId ($year)") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
@@ -150,12 +154,15 @@ fun PeriodDetailScreen(
                 val weekEndDate = FuxionCalendarLogic.addDays(weekStartDate, 6)
                 val isThisWeekActive = isCurrentPeriod && (currentStatus.week == weekIndex)
 
-                // LECTURA DINÁMICA DE LA NUEVA ARQUITECTURA (Cálculo exacto basado en slots)
-                val weekSlots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex)
-                val specificTarget = weekSlots.sumOf { it.targetPoints }
+                // LECTURA DINÁMICA CON DESFASE INYECTADO
+                val weekSlots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod!!)
 
-                val savedPoints = remember(periodId, weekIndex, targetGoal, refreshTrigger) {
-                    orderRepository.getWeekTotalPoints(periodId, weekIndex)
+                // HOMOLOGACIÓN DE REGLA DE NEGOCIO
+                val specificTarget = if (weekSlots.size > 1) 125 else weekSlots.firstOrNull()?.targetPoints ?: 125
+
+                // PROPAGACIÓN DE COORDENADA TEMPORAL (year) AL REPOSITORIO
+                val savedPoints = remember(year, periodId, weekIndex, targetGoal, refreshTrigger) {
+                    orderRepository.getWeekTotalPoints(year, periodId, weekIndex)
                 }
 
                 val hasOrder = savedPoints > 0
@@ -170,7 +177,8 @@ fun PeriodDetailScreen(
                     hasOrder = hasOrder,
                     isGoalMet = isGoalMet,
                     onClick = {
-                        onWeekClick(weekIndex, targetGoal)
+                        // HOMOLOGACIÓN DE LAMBDA
+                        onNavigateToWeek(weekIndex)
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -181,7 +189,7 @@ fun PeriodDetailScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedButton(
-                onClick = { onPlanFullPeriodClick(targetGoal) },
+                onClick = { onNavigateToFullPlan() }, // HOMOLOGACIÓN DE LAMBDA
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, FuxionBlue)

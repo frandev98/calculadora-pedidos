@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -21,12 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
-import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
-import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
-import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
-import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
-import com.francisco.calculadorapedidos.ui.theme.TextPrimary
-import com.francisco.calculadorapedidos.ui.theme.TextSecondary
+import com.francisco.calculadorapedidos.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -34,26 +30,23 @@ import java.util.*
 @Composable
 fun YearOverviewScreen(
     dataStore: FuxionDataStore,
-    onPeriodClick: (Int) -> Unit,
+    onPeriodClick: (Int, Int) -> Unit, // FIRMA MUTADA: Requiere (Año, Periodo)
     onSettingsClick: () -> Unit,
     onClientsClick: () -> Unit
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
-    // Estado único para almacenar los resúmenes de puntos por periodo
-    var periodPointsMap by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
+    // ESTADO COMPUESTO: Llave es Pair(Año, Periodo)
+    var periodPointsMap by remember { mutableStateOf<Map<Pair<Int, Int>, Int>>(emptyMap()) }
 
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
 
-    // Cargamos los datos de progreso de forma optimizada
-    LaunchedEffect(Unit) {
-        val newPointsMap = mutableMapOf<Int, Int>()
-        for (i in 1..13) {
-            newPointsMap[i] = orderRepository.getPeriodTotalPoints(i)
-        }
-        periodPointsMap = newPointsMap
-    }
+    // TODO: Estos valores deben provenir de FuxionDataStore en el futuro.
+    // Por ahora, se asume el año y periodo actual como el punto de inicio (Fallback).
+    val fallbackYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    var userStartPeriod by remember { mutableIntStateOf(1) }
+    var userStartYear by remember { mutableIntStateOf(fallbackYear) }
 
     if (anchorDate == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -61,7 +54,35 @@ fun YearOverviewScreen(
     }
 
     val anchor = Date(anchorDate!!)
-    val status = FuxionCalendarLogic.calculateStatus(anchor)
+    val status = remember(anchorDate) { FuxionCalendarLogic.calculateStatus(anchor) }
+
+    // Inyección de estado inicial (Simulación de Onboarding dinámico)
+    LaunchedEffect(status) {
+        // En producción, esto se lee del DataStore. Si es la primera vez, se graba el status actual.
+        userStartPeriod = status.period
+        userStartYear = fallbackYear
+    }
+
+    // ARITMÉTICA DE VENTANA DESLIZANTE (Rolling Time Window)
+    val rollingWindow = remember(userStartPeriod, userStartYear) {
+        val window = mutableListOf<Pair<Int, Int>>()
+        for (i in 0 until 13) {
+            val displayPeriod = ((userStartPeriod - 1 + i) % 13) + 1
+            val displayYear = if (displayPeriod < userStartPeriod) userStartYear + 1 else userStartYear
+            window.add(Pair(displayYear, displayPeriod))
+        }
+        window
+    }
+
+    // HIDRATACIÓN DE ESTADO 4D
+    LaunchedEffect(rollingWindow) {
+        val newPointsMap = mutableMapOf<Pair<Int, Int>, Int>()
+        for ((year, period) in rollingWindow) {
+            newPointsMap[Pair(year, period)] = orderRepository.getPeriodTotalPoints(year, period)
+        }
+        periodPointsMap = newPointsMap
+    }
+
     val today = Date()
     val todayFormat = SimpleDateFormat("EEEE, d 'DE' MMMM", Locale("es", "ES"))
     val rangeFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
@@ -69,7 +90,7 @@ fun YearOverviewScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Mi Plan Anual Fuxion") },
+                title = { Text("Mi Plan Fuxion") },
                 actions = {
                     IconButton(onClick = onClientsClick) {
                         Icon(Icons.Default.People, contentDescription = "Mis Socios", tint = Color.White)
@@ -92,7 +113,6 @@ fun YearOverviewScreen(
                 .fillMaxSize()
                 .background(BackgroundWhite)
         ) {
-            // --- HEADER / TARJETA DE ESTADO ACTUAL ---
             item {
                 Card(
                     modifier = Modifier.padding(16.dp).fillMaxWidth(),
@@ -142,7 +162,14 @@ fun YearOverviewScreen(
                                     Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.AccessTime, null, tint = if (status.daysRemainingInWeek <= 2) Color(0xFFE65100) else Color.White, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("${status.daysRemainingInWeek} días restantes", style = MaterialTheme.typography.labelSmall, color = if (status.daysRemainingInWeek <= 2) Color(0xFFE65100) else Color.White, fontWeight = FontWeight.Bold)
+
+                                        val daysText = when (status.daysRemainingInWeek) {
+                                            0 -> "¡Cierra hoy!"
+                                            1 -> "1 día restante"
+                                            else -> "${status.daysRemainingInWeek} días restantes"
+                                        }
+
+                                        Text(daysText, style = MaterialTheme.typography.labelSmall, color = if (status.daysRemainingInWeek <= 2) Color(0xFFE65100) else Color.White, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -153,25 +180,29 @@ fun YearOverviewScreen(
             }
 
             item {
-                Text("Todos los Periodos", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                Text("Mi Ciclo PRO 500", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
 
-            items(13) { index ->
-                val periodNum = index + 1
+            // ITERACIÓN SOBRE MATRIZ DESLIZANTE
+            items(rollingWindow) { (year, periodNum) ->
+                // NOTA: Para obtener fechas exactas futuras/pasadas, getPeriodDates debe ser refactorizado
+                // para aceptar el año, actualmente solo operará con el anchor original.
                 val (start, end) = FuxionCalendarLogic.getPeriodDates(anchor, periodNum)
-                val isCurrent = (periodNum == status.period)
 
-                // LECTURA ESTRICTA PRO 500
-                val totalPoints = periodPointsMap[periodNum] ?: 0
-                val targetGoal = 500 // Constante inmutable inyectada
+                // Determinación de estado actual cruzando Año y Periodo
+                val isCurrent = (periodNum == status.period && year == fallbackYear)
+
+                val totalPoints = periodPointsMap[Pair(year, periodNum)] ?: 0
+                val targetGoal = 500
 
                 PeriodCard(
                     periodNumber = periodNum,
+                    yearNumber = year,
                     dateRange = "${rangeFormat.format(start)} - ${rangeFormat.format(end)}",
                     isCurrent = isCurrent,
                     currentPoints = totalPoints,
                     goalPoints = targetGoal,
-                    onClick = { onPeriodClick(periodNum) }
+                    onClick = { onPeriodClick(year, periodNum) }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -184,6 +215,7 @@ fun YearOverviewScreen(
 @Composable
 fun PeriodCard(
     periodNumber: Int,
+    yearNumber: Int,
     dateRange: String,
     isCurrent: Boolean,
     currentPoints: Int,
@@ -228,6 +260,14 @@ fun PeriodCard(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
+                    Spacer(Modifier.width(8.dp))
+                    // INDICADOR DE SALTO INTERANUAL
+                    Text(
+                        "($yearNumber)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+
                     if (isCurrent) {
                         Spacer(Modifier.width(8.dp))
                         Text("ACTUAL", style = MaterialTheme.typography.labelSmall, color = FuxionGreen, fontWeight = FontWeight.Bold)

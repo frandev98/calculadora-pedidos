@@ -54,8 +54,21 @@ fun OnboardingScreen(
         Button(
             onClick = {
                 scope.launch {
-                    val selectedDate = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+                    var selectedDate = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+
+                    if (datePickerState.selectedDateMillis != null) {
+                        val offset = java.util.TimeZone.getDefault().getOffset(selectedDate)
+                        selectedDate += offset
+                    }
+
+                    // 1. Persistencia de fecha corporativa global
                     dataStore.saveAnchorDate(selectedDate)
+
+                    // 2. CÁLCULO E INYECCIÓN DE DESFASE RELATIVO (Momento Cero)
+                    val anchor = java.util.Date(selectedDate)
+                    val initialStatus = com.francisco.calculadorapedidos.logic.FuxionCalendarLogic.calculateStatus(anchor)
+                    dataStore.saveUserStartPeriod(initialStatus.period)
+
                     onFinish()
                 }
             },

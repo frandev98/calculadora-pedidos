@@ -11,17 +11,19 @@ class DistributionCalculator {
         val maxPts: Double
     )
 
+    // FIRMA MUTADA: Se exige userStartPeriod
     fun calculate(
         selectedProducts: List<Pair<Product, Int>>,
-        periodId: Int
+        periodId: Int,
+        userStartPeriod: Int
     ): DistributionResult {
         val inventory = flattenInventory(selectedProducts)
         if (inventory.isEmpty()) return DistributionResult()
 
-        // 1. Generar la matriz de solicitudes (Slots) para las 4 semanas del periodo
         val allRequests = mutableListOf<SlotRequest>()
         val weeklyTargets = (1..4).associateWith { weekIndex ->
-            val slots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex)
+            // PROPAGACIÓN APLICADA: Se inyecta userStartPeriod en la lógica matemática
+            val slots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod)
             slots.forEach { slot ->
                 val min = slot.targetPoints.toDouble()
                 val max = min + 2.0 // Tolerancia estricta paramétrica de +2
@@ -253,8 +255,8 @@ class DistributionCalculator {
                 val req = assignment.keys.find { it.weekIndex == weekIndex && it.def.slotId == def.slotId }
                 val items = if (req != null) assignment[req] ?: emptyList() else emptyList()
 
-                // CORRECCIÓN APLICADA: Se utiliza fallbackName en lugar del obsoleto clientId
-                SlotAllocation(def.slotId, def.fallbackName, def.targetPoints, items)
+                // CORRECCIÓN APLICADA: Se inyecta def.fixedIndex para permitir persistencia
+                SlotAllocation(def.slotId, def.fallbackName, def.fixedIndex, def.targetPoints, items)
             }
         }
 

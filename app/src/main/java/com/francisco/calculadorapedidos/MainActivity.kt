@@ -21,21 +21,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicializamos DataStore y Canal de Notificaciones
         val dataStore = FuxionDataStore(applicationContext)
         FuxionNotificationHelper.createNotificationChannel(applicationContext)
 
         setContent {
             CalculadoraPedidosTheme {
                 val navController = rememberNavController()
-
-                // Leemos la fecha ancla (Inicio de Año)
                 val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = -1L)
 
                 if (anchorDate == -1L) {
-                    // Cargando... (Pantalla en blanco temporal)
+                    // Estado de hidratación inicial retenido
                 } else {
-                    // Si es null, vamos a Onboarding. Si tiene fecha, vamos al Dashboard.
                     val startDest = if (anchorDate == null) "onboarding" else "year_overview"
 
                     LaunchedEffect(anchorDate) {
@@ -45,10 +41,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // --- MAPA DE NAVEGACIÓN ---
                     NavHost(navController = navController, startDestination = startDest) {
 
-                        // RUTA 1: ONBOARDING
                         composable("onboarding") {
                             OnboardingScreen(
                                 dataStore = dataStore,
@@ -60,96 +54,88 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // RUTA 2: DASHBOARD (Resumen del Año)
                         composable("year_overview") {
                             YearOverviewScreen(
                                 dataStore = dataStore,
-                                onPeriodClick = { periodId ->
-                                    navController.navigate("period_detail/$periodId")
+                                onPeriodClick = { year, periodId ->
+                                    navController.navigate("period_detail/$year/$periodId")
                                 },
-                                // 1. CLIC EN ENGRANAJE -> Va a Configuración (Calendario)
-                                onSettingsClick = {
-                                    navController.navigate("settings")
-                                },
-                                // 2. CLIC EN PERSONAS -> Va a Lista de Clientes
-                                onClientsClick = {
-                                    navController.navigate("client_list")
-                                }
+                                onSettingsClick = { navController.navigate("settings") },
+                                onClientsClick = { navController.navigate("client_list") }
                             )
                         }
 
-                        // RUTA 3: DETALLE DEL PERIODO (Semanas)
                         composable(
-                            route = "period_detail/{periodId}",
-                            arguments = listOf(navArgument("periodId") { type = NavType.IntType })
+                            route = "period_detail/{year}/{periodId}",
+                            arguments = listOf(
+                                navArgument("year") { type = NavType.IntType },
+                                navArgument("periodId") { type = NavType.IntType }
+                            )
                         ) { backStackEntry ->
+                            val year = backStackEntry.arguments?.getInt("year") ?: 2026
                             val periodId = backStackEntry.arguments?.getInt("periodId") ?: 1
+
                             PeriodDetailScreen(
+                                year = year,
                                 periodId = periodId,
                                 dataStore = dataStore,
                                 onBack = { navController.popBackStack() },
-                                onWeekClick = { weekId, goal ->
-                                    navController.navigate("week_management/$periodId/$weekId/$goal")
+                                onNavigateToWeek = { weekId ->
+                                    navController.navigate("week_management/$year/$periodId/$weekId")
                                 },
-                                // --- NUEVO: ENRUTAMIENTO AL MODO GLOBAL ---
-                                onPlanFullPeriodClick = { goal ->
-                                    // isWeeklyMode = false, weekId = 0, clientId = "global"
-                                    navController.navigate("order_screen/$goal/false/$periodId/0/global")
+                                onNavigateToFullPlan = {
+                                    navController.navigate("full_plan_distribution/$year/$periodId/500")
                                 }
                             )
                         }
 
-                        // RUTA 4: GESTIÓN DE SEMANA (Clientes y Estrategia)
+                        // HOMOLOGACIÓN DE NODO 4: Eliminación de parámetros obsoletos y corrección de URL
                         composable(
-                            route = "week_management/{periodId}/{weekId}/{goal}",
+                            route = "week_management/{year}/{periodId}/{weekId}",
                             arguments = listOf(
+                                navArgument("year") { type = NavType.IntType },
+                                navArgument("periodId") { type = NavType.IntType },
+                                navArgument("weekId") { type = NavType.IntType }
+                            )
+                        ) { backStackEntry ->
+                            val year = backStackEntry.arguments?.getInt("year") ?: 2026
+                            val periodId = backStackEntry.arguments?.getInt("periodId") ?: 1
+                            val weekId = backStackEntry.arguments?.getInt("weekId") ?: 1
+
+                            WeekManagementScreen(
+                                year = year,
+                                periodId = periodId,
+                                weekId = weekId,
+                                dataStore = dataStore, // <-- INYECCIÓN DE INSTANCIA PRE-EXISTENTE
+                                onBack = { navController.popBackStack() },
+                                onNavigateToOrder = { clientId, targetPoints ->
+                                    val finalTarget = if (targetPoints > 0) targetPoints else 60
+                                    navController.navigate("order_screen/$year/$periodId/$weekId/$clientId/$finalTarget")
+                                }
+                            )
+                        }
+
+                        // HOMOLOGACIÓN DE NODO 5: Extracción de variables 4D completas
+                        composable(
+                            route = "order_screen/{year}/{periodId}/{weekId}/{clientId}/{goal}",
+                            arguments = listOf(
+                                navArgument("year") { type = NavType.IntType },
                                 navArgument("periodId") { type = NavType.IntType },
                                 navArgument("weekId") { type = NavType.IntType },
+                                navArgument("clientId") { type = NavType.StringType },
                                 navArgument("goal") { type = NavType.IntType }
                             )
                         ) { backStackEntry ->
-                            val periodId = backStackEntry.arguments?.getInt("periodId") ?: 0
-                            val weekId = backStackEntry.arguments?.getInt("weekId") ?: 0
-                            val goal = backStackEntry.arguments?.getInt("goal") ?: 540
-
-                            WeekManagementScreen(
-                                periodId = periodId,
-                                weekId = weekId,
-                                targetGoal = goal,
-                                onBack = { navController.popBackStack() },
-                                onNavigateToOrder = { clientId, targetPoints ->
-                                    // CORRECCIÓN: Usamos 'targetPoints'.
-                                    // Si targetPoints es 0 (Comodín), pasamos un valor referencial (ej. 100) o lo dejamos en 0
-                                    // y la UI lo manejará, pero para fijos pasará 120, 180, etc.
-                                    val finalTarget = if (targetPoints > 0) targetPoints else 60 // Default para comodines si quieres
-                                    navController.navigate("order_screen/$finalTarget/true/$periodId/$weekId/$clientId")
-                                },
-                                onNavigateToClientList = {
-                                    navController.navigate("client_list")
-                                }
-                            )
-                        }
-
-                        // RUTA 5: CALCULADORA DE PEDIDOS (Ahora con clientId)
-                        composable(
-                            route = "order_screen/{targetGoal}/{isWeeklyMode}/{periodId}/{weekId}/{clientId}",
-                            arguments = listOf(
-                                navArgument("targetGoal") { type = NavType.IntType },
-                                navArgument("isWeeklyMode") { type = NavType.BoolType },
-                                navArgument("periodId") { type = NavType.IntType; defaultValue = 0 },
-                                navArgument("weekId") { type = NavType.IntType; defaultValue = 0 },
-                                navArgument("clientId") { type = NavType.StringType; defaultValue = "" }
-                            )
-                        ) { backStackEntry ->
-                            val targetGoal = backStackEntry.arguments?.getInt("targetGoal") ?: 0
-                            val isWeeklyMode = backStackEntry.arguments?.getBoolean("isWeeklyMode") ?: false
-                            val periodId = backStackEntry.arguments?.getInt("periodId") ?: 0
-                            val weekId = backStackEntry.arguments?.getInt("weekId") ?: 0
+                            val year = backStackEntry.arguments?.getInt("year") ?: 2026
+                            val periodId = backStackEntry.arguments?.getInt("periodId") ?: 1
+                            val weekId = backStackEntry.arguments?.getInt("weekId") ?: 1
                             val clientId = backStackEntry.arguments?.getString("clientId") ?: ""
+                            val goal = backStackEntry.arguments?.getInt("goal") ?: 60
 
                             OrderScreen(
-                                targetGoal = targetGoal,
-                                isWeeklyMode = isWeeklyMode,
+                                year = year,
+                                targetGoal = goal,
+                                isWeeklyMode = true,
                                 periodId = periodId,
                                 weekId = weekId,
                                 clientId = clientId,
@@ -157,14 +143,34 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // RUTA 6: LISTA DE CLIENTES (Configuración)
+                        // INYECCIÓN DE NODO FALTANTE: Planificación algorítmica
+                        composable(
+                            route = "full_plan_distribution/{year}/{periodId}/{goal}",
+                            arguments = listOf(
+                                navArgument("year") { type = NavType.IntType },
+                                navArgument("periodId") { type = NavType.IntType },
+                                navArgument("goal") { type = NavType.IntType }
+                            )
+                        ) { backStackEntry ->
+                            val year = backStackEntry.arguments?.getInt("year") ?: 2026
+                            val periodId = backStackEntry.arguments?.getInt("periodId") ?: 1
+                            val goal = backStackEntry.arguments?.getInt("goal") ?: 500
+
+                            OrderScreen(
+                                year = year,
+                                targetGoal = goal,
+                                isWeeklyMode = false,
+                                periodId = periodId,
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+
                         composable("client_list") {
                             ClientListScreen(
                                 onBack = { navController.popBackStack() }
                             )
                         }
 
-                        // RUTA 7: CONFIGURACIÓN GENERAL (Si la usas aún)
                         composable("settings") {
                             SettingsScreen(
                                 dataStore = dataStore,

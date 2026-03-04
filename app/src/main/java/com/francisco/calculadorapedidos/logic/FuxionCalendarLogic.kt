@@ -21,30 +21,34 @@ object FuxionCalendarLogic {
     }
 
     // REEMPLAZO DE LA FUNCIÓN DE MATRIZ
-    fun getSlotsForWeek(periodId: Int, weekIndex: Int): List<WeeklySlotDef> {
-        val absWeek = getAbsoluteWeek(if (periodId > 0) periodId else 1, weekIndex)
-        val cycleWeek = getCycleWeek(absWeek)
+    // FIRMA MUTADA: Se inyecta 'userStartPeriod' como dependencia obligatoria
+    fun getSlotsForWeek(periodId: Int, weekId: Int, userStartPeriod: Int): List<com.francisco.calculadorapedidos.data.ClientSlot> {
 
+        // 1. CÁLCULO DE DESFASE MODULAR (Delta Periodos)
+        // Garantiza sincronización interanual de base 13
+        val deltaPeriods = (periodId - userStartPeriod + 13) % 13
+
+        // 2. CÁLCULO DE SEMANA ESTRATÉGICA RELATIVA
+        val relativeAbsWeek = (deltaPeriods * 4) + weekId
+
+        // 3. AISLAMIENTO DEL CICLO PRO 500 (13 Semanas)
+        val cycleWeek = ((relativeAbsWeek - 1) % 13) + 1
+
+        // Iteración estática inalterada
         return when (cycleWeek) {
-            1, 5, 9 -> listOf(
-                WeeklySlotDef("A", 1, "Cliente 1", 60),
-                WeeklySlotDef("B", 2, "Cliente 2", 60) // Cambiado a 60
-            )
-            2, 6, 10 -> listOf(
-                WeeklySlotDef("A", 3, "Cliente 3", 60),
-                WeeklySlotDef("B", 4, "Cliente 4", 60) // Cambiado a 60
-            )
-            3, 7, 11 -> listOf(
-                WeeklySlotDef("A", 5, "Cliente 5", 60),
-                WeeklySlotDef("B", 6, "Cliente 6", 60) // Cambiado a 60
-            )
-            4, 8, 12 -> listOf(
-                WeeklySlotDef("A", 7, "Cliente 7", 60),
-                WeeklySlotDef("B", 8, "Cliente 8", 60) // Cambiado a 60
-            )
-            13 -> listOf(
-                WeeklySlotDef("U", 9, "Cliente 9", 125)
-            )
+            1 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(1, 60), com.francisco.calculadorapedidos.data.ClientSlot(2, 60))
+            2 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(3, 60), com.francisco.calculadorapedidos.data.ClientSlot(4, 60))
+            3 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(5, 60), com.francisco.calculadorapedidos.data.ClientSlot(6, 60))
+            4 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(1, 60), com.francisco.calculadorapedidos.data.ClientSlot(7, 60))
+            5 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(2, 60), com.francisco.calculadorapedidos.data.ClientSlot(8, 60))
+            6 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(3, 60), com.francisco.calculadorapedidos.data.ClientSlot(9, 60))
+            7 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(4, 60), com.francisco.calculadorapedidos.data.ClientSlot(5, 60))
+            8 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(6, 60), com.francisco.calculadorapedidos.data.ClientSlot(7, 60))
+            9 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(8, 60), com.francisco.calculadorapedidos.data.ClientSlot(1, 60))
+            10 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(9, 60), com.francisco.calculadorapedidos.data.ClientSlot(2, 60))
+            11 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(3, 125))
+            12 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(4, 125))
+            13 -> listOf(com.francisco.calculadorapedidos.data.ClientSlot(9, 125))
             else -> emptyList()
         }
     }

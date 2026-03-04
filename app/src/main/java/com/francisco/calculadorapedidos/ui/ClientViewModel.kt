@@ -26,7 +26,31 @@ class ClientViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadClients() {
         viewModelScope.launch {
-            _clients.value = repository.getAllClients()
+            var currentList = repository.getAllClients()
+
+            // AUDITORÍA DE INTEGRIDAD: Garantizar ranuras fijas 1 al 9
+            val fixedClients = currentList.filter { it.type == com.francisco.calculadorapedidos.data.ClientType.FIXED }
+            var dbMutated = false
+
+            for (i in 1..9) {
+                if (fixedClients.none { it.fixedIndex == i }) {
+                    val stubClient = com.francisco.calculadorapedidos.data.Client(
+                        id = java.util.UUID.randomUUID().toString(),
+                        name = "Cliente $i",
+                        type = com.francisco.calculadorapedidos.data.ClientType.FIXED,
+                        fixedIndex = i
+                    )
+                    repository.saveClient(stubClient)
+                    dbMutated = true
+                }
+            }
+
+            // Recarga estricta si hubo mutación para mantener coherencia en memoria
+            if (dbMutated) {
+                currentList = repository.getAllClients()
+            }
+
+            _clients.value = currentList
         }
     }
 

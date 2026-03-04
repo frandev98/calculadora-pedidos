@@ -19,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,7 +27,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.francisco.calculadorapedidos.R
 import com.francisco.calculadorapedidos.data.DistributedItem
 import com.francisco.calculadorapedidos.data.DistributionResult
 import com.francisco.calculadorapedidos.data.OrderRepository
@@ -45,42 +43,84 @@ import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
+    year: Int,
     targetGoal: Int,
     isWeeklyMode: Boolean,
     periodId: Int = 0,
     weekId: Int = 0,
-    clientId: String = "", // <--- NUEVO PARAMETRO
+    clientId: String = "",
     viewModel: OrderViewModel = viewModel(),
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
-    LaunchedEffect(targetGoal, isWeeklyMode, periodId, weekId) {
-        // CORRECCIÓN: Se añade 'periodId' como tercer argumento
-        viewModel.setupMode(targetGoal, isWeeklyMode, periodId)
+    // INSTANCIACIÓN LOCAL: Se extrae el DataStore desde el contexto para no alterar el NavHost
+    val dataStore = remember { com.francisco.calculadorapedidos.data.FuxionDataStore(context) }
+
+    // LECTURA REACTIVA: Extracción asíncrona de la variable de desfase
+    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
+
+    // BLOQUEO DE ESTADO: Evita el despliegue de la UI si la base de datos no ha respondido
+    if (userStartPeriod == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
+    LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId, userStartPeriod) {
+        // INYECCIÓN DE FIRMA ESTABILIZADA
+        viewModel.setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod!!)
 
         if (isWeeklyMode && periodId != 0 && weekId != 0) {
-            val savedProducts = orderRepository.getOrder(periodId, weekId, clientId)
+            val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
             if (savedProducts.isNotEmpty()) {
                 viewModel.loadProducts(savedProducts)
+            }
+        } else if (!isWeeklyMode && periodId != 0) {
+            val draftProducts = orderRepository.getPeriodDraft(year, periodId)
+            if (draftProducts.isNotEmpty()) {
+                viewModel.loadProducts(draftProducts)
             }
         }
     }
 
+    var showGlobalSaveSuccess by remember { mutableStateOf(false) }
+
     if (viewModel.distributionResult != null) {
         ResultView(
             result = viewModel.distributionResult!!,
-            onBack = { viewModel.clearResult() }
+            onBack = { viewModel.clearResult() },
+            onSave = {
+                val clientRepo = com.francisco.calculadorapedidos.data.ClientRepository(context)
+                viewModel.saveFullDistribution(
+                    year = year,
+                    result = viewModel.distributionResult!!,
+                    orderRepository = orderRepository,
+                    clientRepository = clientRepo
+                )
+                orderRepository.clearPeriodDraft(year, periodId)
+                showGlobalSaveSuccess = true
+            }
         )
     } else {
         OrderInputView(
             viewModel = viewModel,
             onBack = onBack,
+            year = year,
             periodId = periodId,
             weekId = weekId,
-            clientId = clientId, // <--- No olvides pasarlo aquí también
+            clientId = clientId,
             orderRepository = orderRepository
+        )
+    }
+
+    if (showGlobalSaveSuccess) {
+        SuccessDialog(
+            onDismiss = {
+                showGlobalSaveSuccess = false
+                viewModel.clearResult()
+                onBack()
+            }
         )
     }
 }
@@ -90,9 +130,10 @@ fun OrderScreen(
 fun OrderInputView(
     viewModel: OrderViewModel,
     onBack: () -> Unit,
+    year: Int, // <--- DEPENDENCIA RECIBIDA
     periodId: Int,
     weekId: Int,
-    clientId: String, // <--- AGREGAR ESTO
+    clientId: String,
     orderRepository: OrderRepository
 ) {
     var showCatalog by remember { mutableStateOf(false) }
@@ -105,8 +146,14 @@ fun OrderInputView(
     val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
     val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
 
-    // Ahora permitimos proceder si es modo semanal (para poder borrar), o si hay productos en modo periodo
     val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
+
+    // AUTO-GUARDADO REACTIVO DEL BORRADOR 4D
+    LaunchedEffect(viewModel.selectedProducts.toList()) {
+        if (!viewModel.isWeeklyMode && periodId != 0) {
+            orderRepository.savePeriodDraft(year, periodId, viewModel.selectedProducts.toList())
+        }
+    }
 
     Scaffold(
         containerColor = BackgroundWhite,
@@ -140,18 +187,16 @@ fun OrderInputView(
                         onClick = {
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
-                                    // CASO ESPECIAL: Lista vacía = El usuario quiere borrar el pedido
                                     if (viewModel.selectedProducts.isEmpty()) {
                                         if (periodId != 0 && weekId != 0) {
-                                            // CAMBIO AQUÍ: Agregamos clientId
-                                            orderRepository.clearOrder(periodId, weekId, clientId)
+                                            // ELIMINACIÓN 4D
+                                            orderRepository.clearOrder(year, periodId, weekId, clientId)
                                         }
                                         onBack()
                                     } else {
-                                        // CASO NORMAL: Guardar pedido con productos
                                         if (periodId != 0 && weekId != 0) {
-                                            // CAMBIO AQUÍ: Agregamos clientId
-                                            orderRepository.saveOrder(periodId, weekId, clientId, viewModel.selectedProducts)
+                                            // ESCRITURA 4D
+                                            orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
                                         }
 
                                         if (isWeeklyGoalMet) {
@@ -161,27 +206,21 @@ fun OrderInputView(
                                         }
                                     }
                                 } else {
-                                    // MODO PERIODO
                                     viewModel.onPrincipalActionButtonClick()
                                 }
                             }
                         },
-                        // COLORES:
-                        // - Gris: Si está vacío y NO es modo semanal (bloqueado)
-                        // - Naranja: Si es modo semanal y faltan puntos (pero hay productos)
-                        // - Verde: Si está vacío en semanal (CONFIRMAR) o si cumplió meta
                         containerColor = if (!canProceed && !viewModel.isWeeklyMode) Color.Gray
                         else if (viewModel.isWeeklyMode && !isWeeklyGoalMet && viewModel.selectedProducts.isNotEmpty()) ProgressOrange
-                        else Color(0xFF4CAF50), // Verde para Listo y para Confirmar Vacío
+                        else Color(0xFF4CAF50),
                         contentColor = Color.White,
                         modifier = Modifier.padding(bottom = 16.dp)
                     ) {
                         if (viewModel.isWeeklyMode) {
                             if (viewModel.selectedProducts.isEmpty()) {
-                                // CAMBIO APLICADO: Check + "CONFIRMAR"
                                 Icon(Icons.Default.Check, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("CONFIRMAR") // Simple y directo
+                                Text("CONFIRMAR")
                             } else if (isWeeklyGoalMet) {
                                 Icon(Icons.Default.Check, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
@@ -291,8 +330,11 @@ fun OrderInputView(
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.clearCart() // Solo limpia la vista
-                        // ELIMINADO: orderRepository.clearOrder(...) -> Ya no borramos aquí directamente
+                        viewModel.clearCart()
+                        if (!viewModel.isWeeklyMode && periodId != 0) {
+                            // PURGA 4D MANUAL
+                            orderRepository.clearPeriodDraft(year, periodId)
+                        }
                         showDeleteDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
@@ -314,22 +356,39 @@ fun OrderInputView(
 }
 
 @Composable
-fun ResultView(result: DistributionResult, onBack: () -> Unit) {
-    Scaffold(containerColor = BackgroundWhite) { padding ->
+fun ResultView(
+    result: DistributionResult,
+    onBack: () -> Unit,
+    onSave: () -> Unit
+) {
+    Scaffold(
+        containerColor = BackgroundWhite,
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onSave,
+                containerColor = FuxionGreen,
+                contentColor = androidx.compose.ui.graphics.Color.White
+            ) {
+                Icon(Icons.Default.Save, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("GUARDAR DISTRIBUCIÓN", fontWeight = FontWeight.Bold)
+            }
+        }
+    ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
-                contentPadding = PaddingValues(bottom = 32.dp),
+                contentPadding = PaddingValues(bottom = 80.dp),
                 modifier = Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())
             ) {
-                item { StrategicResultHeader(totalPoints = result.globalPoints, isPerfect = result.isPerfectFit) }
+                item { StrategicResultHeader(totalPoints = result.globalPoints.toDouble(), isPerfect = result.isPerfectFit) }
 
                 val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
 
                 weeks.forEach { week ->
                     item {
-                        TimelineWeekItem("Semana ${week.weekIndex}", week.totalPoints, isLast = week.weekIndex == 4) {
+                        TimelineWeekItem("Semana ${week.weekIndex}", week.totalPoints.toDouble(), isLast = week.weekIndex == 4) {
                             week.slots.forEach { slot ->
-                                SubOrderHeader("${slot.clientId} (Meta: ${slot.targetPoints})", slot.achievedPoints)
+                                SubOrderHeader("${slot.clientId} (Meta: ${slot.targetPoints})", slot.achievedPoints.toDouble())
                                 slot.items.forEach { ProductResultRow(it) }
                             }
                         }
@@ -387,7 +446,7 @@ fun SuccessDialog(onDismiss: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "¡Semana Completada!",
+                    text = "¡Completado!",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
@@ -395,7 +454,7 @@ fun SuccessDialog(onDismiss: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Has alcanzado tu objetivo semanal. ¡Sigue así!",
+                    text = "Operación finalizada con éxito.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
@@ -410,42 +469,6 @@ fun SuccessDialog(onDismiss: () -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-fun SubOrderHeader(title: String, items: List<DistributedItem>) {
-    val total = items.sumOf { it.totalPoints }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp, bottom = 8.dp, start = 16.dp, end = 16.dp)
-            .background(Color(0xFFEEEEEE), shape = MaterialTheme.shapes.small)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.ShoppingCart,
-                contentDescription = null,
-                tint = Color(0xFF616161),
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF424242)
-            )
-        }
-        Text(
-            text = "$total pts",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF424242)
-        )
     }
 }
 
