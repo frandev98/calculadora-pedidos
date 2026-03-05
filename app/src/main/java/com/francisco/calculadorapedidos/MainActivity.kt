@@ -15,8 +15,10 @@ import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.logic.FuxionNotificationHelper
 import com.francisco.calculadorapedidos.ui.theme.CalculadoraPedidosTheme
+import dagger.hilt.android.AndroidEntryPoint
 import java.util.Date
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -185,6 +187,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
+        }}
     }
 }

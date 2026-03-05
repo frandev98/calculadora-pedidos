@@ -1,21 +1,22 @@
 plugins {
     alias(libs.plugins.android.application)
+    // INYECCIÓN CRÍTICA: Motor compilador de Kotlin (Restauración de dependencia)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
-    // SIN VERSIÓN AQUÍ
     id("com.google.dagger.hilt.android")
 }
 
 android {
     namespace = "com.francisco.calculadorapedidos"
-    compileSdk {
-        version = release(36)
-    }
+
+    // CORRECCIÓN DE SINTAXIS DSL (Asignación directa obligatoria en AGP 8.x)
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.francisco.calculadorapedidos"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -69,10 +70,6 @@ dependencies {
     implementation("androidx.room:room-ktx:$room_version")
     ksp("androidx.room:room-compiler:$room_version")
 
-    // DAGGER-HILT NÚCLEO Y COMPILADOR
-    // DAGGER-HILT NÚCLEO Y COMPILADOR (Versiones simétricas homologadas)
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-compiler:2.51.1")
     // INYECCIÓN DE DEPENDENCIAS A TRAVÉS DEL CATÁLOGO
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

@@ -14,14 +14,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+// INYECCIÓN DE DEPENDENCIA DE HILT
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.OrderMetrics
-import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.*
 import com.francisco.calculadorapedidos.data.FuxionDataStore
@@ -37,16 +37,11 @@ fun WeekManagementScreen(
     onBack: () -> Unit,
     onNavigateToOrder: (String, Int) -> Unit,
     clientViewModel: ClientViewModel = viewModel(),
-    // INYECCIÓN DEL MOTOR DE ESTADO SEMANAL
-    weekViewModel: WeekViewModel = viewModel()
+    // DELEGACIÓN DEL CICLO DE VIDA A LA FACTORÍA DE HILT
+    weekViewModel: WeekViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
-    val orderRepository = remember { OrderRepository(context) }
-
     val allClients by clientViewModel.clients.collectAsState()
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
-
-    // SUSCRIPCIÓN REACTIVA AL ESTADO
     val uiState by weekViewModel.uiState.collectAsState()
 
     if (userStartPeriod == null) {
@@ -66,9 +61,9 @@ fun WeekManagementScreen(
         if (slots.size > 1) 125 else slots.firstOrNull()?.targetPoints ?: 125
     }
 
-    // GATILLO DE EJECUCIÓN UNIDIRECCIONAL
+    // GATILLO DE ESTADO PURGADO DE REPOSITORIOS MANUALES
     LaunchedEffect(year, periodId, weekId, allClients, showWildcardDialog) {
-        weekViewModel.loadWeekData(year, periodId, weekId, allClients, orderRepository)
+        weekViewModel.loadWeekData(year, periodId, weekId, allClients)
     }
 
     Scaffold(

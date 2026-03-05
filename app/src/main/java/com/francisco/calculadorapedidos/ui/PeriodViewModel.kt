@@ -5,13 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionFinancialLogic
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-// CONTRATO INMUTABLE DE ESTADO UI
 data class PeriodUiState(
     val totalPoints: Int = 0,
     val directSalesBonus: Double = 0.0,
@@ -20,16 +21,17 @@ data class PeriodUiState(
     val isLoading: Boolean = true
 )
 
-class PeriodViewModel : ViewModel() {
+@HiltViewModel
+class PeriodViewModel @Inject constructor(
+    private val orderRepository: OrderRepository // Inyección Automática Hilt
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PeriodUiState())
     val uiState: StateFlow<PeriodUiState> = _uiState.asStateFlow()
 
-    fun loadPeriodData(year: Int, periodId: Int, orderRepository: OrderRepository) {
-        // EJECUCIÓN ESTRICTA EN HILO SECUNDARIO (I/O)
+    fun loadPeriodData(year: Int, periodId: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isLoading = true)
-
             var tempPoints = 0
             var tempDirectSalesBonus = 0.0
             val metricsMap = mutableMapOf<Int, OrderMetrics>()
@@ -52,7 +54,6 @@ class PeriodViewModel : ViewModel() {
 
             val computedPro1 = FuxionFinancialLogic.calculatePro1Bonus(tempPoints)
 
-            // MUTACIÓN DE ESTADO ATÓMICA
             _uiState.value = PeriodUiState(
                 totalPoints = tempPoints,
                 directSalesBonus = tempDirectSalesBonus,

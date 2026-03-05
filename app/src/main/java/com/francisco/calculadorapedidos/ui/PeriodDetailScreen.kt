@@ -1,6 +1,5 @@
 package com.francisco.calculadorapedidos.ui
 
-import com.francisco.calculadorapedidos.data.FuxionDataStore
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,12 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.francisco.calculadorapedidos.data.OrderRepository
+// INYECCIÓN DE DEPENDENCIA DE HILT
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
@@ -41,15 +40,11 @@ fun PeriodDetailScreen(
     onBack: () -> Unit,
     onNavigateToWeek: (Int) -> Unit,
     onNavigateToFullPlan: () -> Unit,
-    // INYECCIÓN DE DEPENDENCIA DEL MOTOR DE ESTADO
-    viewModel: PeriodViewModel = viewModel()
+    // DELEGACIÓN DEL CICLO DE VIDA A LA FACTORÍA DE HILT
+    viewModel: PeriodViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
-    val orderRepository = remember { OrderRepository(context) }
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
-
-    // SUSCRIPCIÓN REACTIVA AL FLUJO DE ESTADO MATEMÁTICO
     val uiState by viewModel.uiState.collectAsState()
 
     if (anchorDate == null || userStartPeriod == null) {
@@ -62,9 +57,9 @@ fun PeriodDetailScreen(
     val currentStatus = remember(anchor) { FuxionCalendarLogic.calculateStatus(anchor) }
     val isCurrentPeriod = currentStatus.period == periodId
 
-    // GATILLO DE EJECUCIÓN UNIDIRECCIONAL (Cero lógica en UI)
+    // GATILLO DE ESTADO PURGADO DE REPOSITORIOS MANUALES
     LaunchedEffect(year, periodId) {
-        viewModel.loadPeriodData(year, periodId, orderRepository)
+        viewModel.loadPeriodData(year, periodId)
     }
 
     val targetGoal = 500
