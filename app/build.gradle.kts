@@ -1,6 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp")
+    // SIN VERSIÓN AQUÍ
+    id("com.google.dagger.hilt.android")
 }
 
 android {
@@ -59,4 +62,19 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.browser:browser:1.7.0")
+
+    // NÚCLEO RELACIONAL ROOM
+    val room_version = "2.6.1"
+    implementation("androidx.room:room-runtime:$room_version")
+    implementation("androidx.room:room-ktx:$room_version")
+    ksp("androidx.room:room-compiler:$room_version")
+
+    // DAGGER-HILT NÚCLEO Y COMPILADOR
+    // DAGGER-HILT NÚCLEO Y COMPILADOR (Versiones simétricas homologadas)
+    implementation("com.google.dagger:hilt-android:2.51.1")
+    ksp("com.google.dagger:hilt-compiler:2.51.1")
+    // INYECCIÓN DE DEPENDENCIAS A TRAVÉS DEL CATÁLOGO
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
 }

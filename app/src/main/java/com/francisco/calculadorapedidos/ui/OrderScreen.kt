@@ -1,5 +1,6 @@
 package com.francisco.calculadorapedidos.ui
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -135,6 +136,9 @@ fun OrderInputView(
     clientId: String,
     orderRepository: OrderRepository
 ) {
+    // INYECCIÓN DE ÁMBITO ASÍNCRONO PARA SQLITE
+    val scope = rememberCoroutineScope()
+
     var showCatalog by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -182,12 +186,15 @@ fun OrderInputView(
                         onClick = {
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
-                                    if (viewModel.selectedProducts.isEmpty()) {
-                                        if (periodId != 0 && weekId != 0) orderRepository.clearOrder(year, periodId, weekId, clientId)
-                                        onBack()
-                                    } else {
-                                        if (periodId != 0 && weekId != 0) orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
-                                        if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
+                                    // DELEGACIÓN ASÍNCRONA DE ESCRITURA
+                                    scope.launch {
+                                        if (viewModel.selectedProducts.isEmpty()) {
+                                            if (periodId != 0 && weekId != 0) orderRepository.clearOrder(year, periodId, weekId, clientId)
+                                            onBack()
+                                        } else {
+                                            if (periodId != 0 && weekId != 0) orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
+                                            if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
+                                        }
                                     }
                                 } else {
                                     viewModel.onPrincipalActionButtonClick()
@@ -243,7 +250,7 @@ fun OrderInputView(
                     SelectedProductItem(
                         product = product,
                         quantity = quantity,
-                        isAffiliation = isAffiliation, // HOMOLOGACIÓN DE FIRMA: Pasa el parámetro correctamente
+                        isAffiliation = isAffiliation,
                         onInc = { viewModel.incrementQuantity(product) },
                         onDec = { if (quantity > 1) viewModel.decrementQuantity(product) },
                         onRemove = { viewModel.removeProduct(product) }
@@ -277,9 +284,12 @@ fun OrderInputView(
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.clearCart()
-                        if (!viewModel.isWeeklyMode && periodId != 0) orderRepository.clearPeriodDraft(year, periodId)
-                        showDeleteDialog = false
+                        // DELEGACIÓN ASÍNCRONA DE BORRADO
+                        scope.launch {
+                            viewModel.clearCart()
+                            if (!viewModel.isWeeklyMode && periodId != 0) orderRepository.clearPeriodDraft(year, periodId)
+                            showDeleteDialog = false
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) { Text("Borrar") }

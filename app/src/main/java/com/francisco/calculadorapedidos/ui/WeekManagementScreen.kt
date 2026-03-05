@@ -18,15 +18,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
-import com.francisco.calculadorapedidos.logic.FuxionFinancialLogic
 import com.francisco.calculadorapedidos.ui.theme.*
 import com.francisco.calculadorapedidos.data.FuxionDataStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,13 +36,18 @@ fun WeekManagementScreen(
     dataStore: FuxionDataStore,
     onBack: () -> Unit,
     onNavigateToOrder: (String, Int) -> Unit,
-    clientViewModel: ClientViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    clientViewModel: ClientViewModel = viewModel(),
+    // INYECCIÓN DEL MOTOR DE ESTADO SEMANAL
+    weekViewModel: WeekViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
     val allClients by clientViewModel.clients.collectAsState()
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
+
+    // SUSCRIPCIÓN REACTIVA AL ESTADO
+    val uiState by weekViewModel.uiState.collectAsState()
 
     if (userStartPeriod == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -54,65 +57,18 @@ fun WeekManagementScreen(
     val slots = remember(periodId, weekId, userStartPeriod) {
         FuxionCalendarLogic.getSlotsForWeek(periodId, weekId, userStartPeriod!!)
     }
+
     var clientToEdit by remember { mutableStateOf<Client?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
+    var showWildcardDialog by remember { mutableStateOf(false) }
 
     val totalWeekTarget = remember(slots) {
         if (slots.size > 1) 125 else slots.firstOrNull()?.targetPoints ?: 125
     }
 
-    var clientProgress by remember { mutableStateOf<Map<String, OrderMetrics>>(emptyMap()) }
-    var currentWeekPoints by remember { mutableIntStateOf(0) }
-    var currentWeekMoney by remember { mutableDoubleStateOf(0.0) }
-
-    // VARIABLES DEL MOTOR PV4
-    var currentPV4Points by remember { mutableIntStateOf(0) }
-    var currentDiscount by remember { mutableDoubleStateOf(0.0) }
-
-    var activeWildcards by remember { mutableStateOf<List<Client>>(emptyList()) }
-    var showWildcardDialog by remember { mutableStateOf(false) }
-
-    LaunchedEffect(year, periodId, weekId, showWildcardDialog, allClients) {
-        withContext(Dispatchers.IO) {
-            val progressMap = mutableMapOf<String, OrderMetrics>()
-            var totalPts = 0
-            var totalMoney = 0.0
-            val wildcardsInThisWeek = mutableListOf<Client>()
-
-            allClients.forEach { client ->
-                val order = orderRepository.getOrder(year, periodId, weekId, client.id)
-                val pts = order.sumOf { it.first.points * it.second }.toInt()
-                val money = order.sumOf { it.first.price * it.second }.toDouble()
-
-                if (pts > 0) {
-                    progressMap[client.id] = OrderMetrics(pts, money)
-                    totalPts += pts
-                    totalMoney += money
-                    if (client.type == com.francisco.calculadorapedidos.data.ClientType.WILDCARD) {
-                        wildcardsInThisWeek.add(client)
-                    }
-                } else if (client.type == com.francisco.calculadorapedidos.data.ClientType.FIXED) {
-                    progressMap[client.id] = OrderMetrics(0, 0.0)
-                }
-            }
-
-            // CÁLCULO HISTÓRICO PV4
-            val coordinates = FuxionFinancialLogic.getPV4Coordinates(year, periodId, weekId)
-            var historicalPV4 = 0
-            coordinates.forEach { coord ->
-                historicalPV4 += orderRepository.getWeekMetrics(coord.year, coord.period, coord.week).points
-            }
-            val discount = FuxionFinancialLogic.getDiscountPercentage(historicalPV4)
-
-            withContext(Dispatchers.Main) {
-                clientProgress = progressMap
-                currentWeekPoints = totalPts
-                currentWeekMoney = totalMoney
-                activeWildcards = wildcardsInThisWeek
-                currentPV4Points = historicalPV4
-                currentDiscount = discount
-            }
-        }
+    // GATILLO DE EJECUCIÓN UNIDIRECCIONAL
+    LaunchedEffect(year, periodId, weekId, allClients, showWildcardDialog) {
+        weekViewModel.loadWeekData(year, periodId, weekId, allClients, orderRepository)
     }
 
     Scaffold(
@@ -124,6 +80,13 @@ fun WeekManagementScreen(
             )
         }
     ) { padding ->
+        if (uiState.isLoading) {
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = FuxionBlue)
+            }
+            return@Scaffold
+        }
+
         Column(modifier = Modifier.padding(padding).fillMaxSize().background(BackgroundWhite).padding(16.dp)) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -133,26 +96,25 @@ fun WeekManagementScreen(
                 Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("OBJETIVO SEMANAL (PRO 500)", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(8.dp))
-                    Text("$currentWeekPoints / $totalWeekTarget pts", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("${uiState.currentWeekPoints} / $totalWeekTarget pts", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
 
-                    if (currentWeekMoney > 0) {
+                    if (uiState.currentWeekMoney > 0) {
                         Spacer(Modifier.height(4.dp))
-                        Text(String.format(Locale("es", "PE"), "Inversión Total: S/ %,.2f", currentWeekMoney), color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                        Text(String.format(Locale("es", "PE"), "Inversión Total: S/ %,.2f", uiState.currentWeekMoney), color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
                     }
 
                     Spacer(Modifier.height(8.dp))
-                    val progress = (currentWeekPoints.toFloat() / totalWeekTarget.toFloat()).coerceIn(0f, 1f)
+                    val progress = (uiState.currentWeekPoints.toFloat() / totalWeekTarget.toFloat()).coerceIn(0f, 1f)
                     LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(8.dp), color = FuxionGreen, trackColor = Color.White.copy(alpha = 0.3f))
 
-                    // INYECCIÓN DE INDICADOR PV4
                     Spacer(Modifier.height(12.dp))
                     Surface(color = Color.Black.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp)) {
                         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("🔥 PV4 Actual: $currentPV4Points pts", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text("🔥 PV4 Actual: ${uiState.currentPV4Points} pts", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.width(8.dp))
                             Text("|", color = Color.White.copy(alpha = 0.5f))
                             Spacer(Modifier.width(8.dp))
-                            Text("Descuento: ${(currentDiscount * 100).toInt()}%", color = Color(0xFFFFCC80), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Text("Descuento: ${(uiState.currentDiscount * 100).toInt()}%", color = Color(0xFFFFCC80), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -167,7 +129,7 @@ fun WeekManagementScreen(
                     val clientEntity = allClients.find { it.type == com.francisco.calculadorapedidos.data.ClientType.FIXED && it.fixedIndex == slot.fixedIndex }
                     if (clientEntity == null) return@items
 
-                    val metrics = clientProgress[clientEntity.id] ?: OrderMetrics(0, 0.0)
+                    val metrics = uiState.clientProgress[clientEntity.id] ?: OrderMetrics(0, 0.0)
                     val isCompleted = metrics.points >= slot.targetPoints
 
                     val cardContainer = if (isCompleted) Color(0xFFE8F5E9) else Color.White
@@ -214,8 +176,8 @@ fun WeekManagementScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                items(activeWildcards) { wildcard ->
-                    val metrics = clientProgress[wildcard.id] ?: OrderMetrics(0, 0.0)
+                items(uiState.activeWildcards) { wildcard ->
+                    val metrics = uiState.clientProgress[wildcard.id] ?: OrderMetrics(0, 0.0)
 
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { onNavigateToOrder(wildcard.id, 0) },

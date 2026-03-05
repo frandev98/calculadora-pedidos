@@ -30,7 +30,7 @@ class OrderViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
 
-    var targetGoal by mutableStateOf(500)
+    var targetGoal by mutableStateOf(540)
         private set
 
     var isWeeklyMode by mutableStateOf(false)
@@ -39,13 +39,11 @@ class OrderViewModel : ViewModel() {
     var currentPeriodId by mutableStateOf(1)
         private set
 
-    // INYECCIÓN DE DEPENDENCIA: Almacenamiento del desfase de inicio
     var userStartPeriod by mutableStateOf(1)
         private set
 
     private val distributionCalculator = DistributionCalculator()
 
-    // FIRMA MUTADA: Recepción de userStartPeriod
     fun setupMode(goal: Int, isWeekly: Boolean, periodId: Int, startPeriod: Int) {
         targetGoal = goal
         isWeeklyMode = isWeekly
@@ -105,7 +103,6 @@ class OrderViewModel : ViewModel() {
 
         viewModelScope.launch(Dispatchers.Default) {
             delay(1000)
-            // INYECCIÓN DE DESFASE EN MOTOR MATEMÁTICO
             val result = distributionCalculator.calculate(_selectedProducts, currentPeriodId, userStartPeriod)
             withContext(Dispatchers.Main) {
                 distributionResult = result
@@ -119,28 +116,32 @@ class OrderViewModel : ViewModel() {
         _selectedProducts.addAll(products)
     }
 
+    // RESOLUCIÓN DE RUPTURA: Inyección de Corrutina para I/O Relacional
     fun saveFullDistribution(year: Int, result: DistributionResult, orderRepository: OrderRepository, clientRepository: ClientRepository) {
-        val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
+        viewModelScope.launch {
+            val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
 
-        for (week in weeks) {
-            for (slot in week.slots) {
-                var clientEntity = clientRepository.getFixedClient(slot.fixedIndex)
+            for (week in weeks) {
+                for (slot in week.slots) {
+                    var clientEntity = clientRepository.getFixedClient(slot.fixedIndex)
 
-                if (clientEntity == null) {
-                    val newClient = Client(
-                        id = UUID.randomUUID().toString(),
-                        name = slot.clientId,
-                        type = ClientType.FIXED,
-                        fixedIndex = slot.fixedIndex
-                    )
-                    clientRepository.saveClient(newClient)
-                    clientEntity = newClient
+                    if (clientEntity == null) {
+                        val newClient = Client(
+                            id = UUID.randomUUID().toString(),
+                            name = slot.clientId,
+                            type = ClientType.FIXED,
+                            fixedIndex = slot.fixedIndex
+                        )
+                        clientRepository.saveClient(newClient)
+                        clientEntity = newClient
+                    }
+
+                    val realClientId = clientEntity.id
+                    val productsToSave = slot.items.map { Pair(it.product, it.quantity) }
+
+                    // Delegación segura: el repositorio ya maneja su propio Dispatchers.IO internamente
+                    orderRepository.saveOrder(year, currentPeriodId, week.weekIndex, realClientId, productsToSave)
                 }
-
-                val realClientId = clientEntity.id
-                val productsToSave = slot.items.map { Pair(it.product, it.quantity) }
-
-                orderRepository.saveOrder(year, currentPeriodId, week.weekIndex, realClientId, productsToSave)
             }
         }
     }

@@ -215,10 +215,18 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        val orderRepo = com.francisco.calculadorapedidos.data.OrderRepository(context)
                         context.getSharedPreferences("fuxion_clients_db", Context.MODE_PRIVATE).edit().clear().apply()
                         context.getSharedPreferences("fuxion_orders_db", Context.MODE_PRIVATE).edit().clear().apply()
-                        scope.launch { dataStore.clearData() }
-                        Toast.makeText(context, "App restablecida.", Toast.LENGTH_LONG).show()
+
+                        scope.launch {
+                            // PURGA RELACIONAL: Destruye el esquema SQLite
+                            orderRepo.wipeAllRelationalData()
+                            // PURGA DE ESTADO: Destruye configuraciones DataStore
+                            dataStore.clearData()
+                        }
+
+                        Toast.makeText(context, "App restablecida. Datos relacionales destruidos.", Toast.LENGTH_LONG).show()
                         showDeleteConfirm = false
                         onBack()
                     },
