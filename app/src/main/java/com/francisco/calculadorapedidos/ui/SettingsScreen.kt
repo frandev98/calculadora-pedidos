@@ -2,7 +2,6 @@ package com.francisco.calculadorapedidos.ui
 
 import android.app.DatePickerDialog
 import android.content.Context
-import android.widget.DatePicker
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -32,14 +31,16 @@ import java.util.*
 fun SettingsScreen(
     dataStore: FuxionDataStore,
     onBack: () -> Unit,
-    onNavigateToAffiliation: (Int, Int) -> Unit // NUEVA DEPENDENCIA ESTRUCTURAL
+    onNavigateToAffiliation: (Int, Int) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     var anchorDateMillis by remember { mutableStateOf<Long?>(null) }
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = 1)
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var expandedPeriod by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         anchorDateMillis = dataStore.anchorDateFlow.first()
@@ -128,9 +129,61 @@ fun SettingsScreen(
                 }
             }
 
+            Spacer(Modifier.height(16.dp))
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(2.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = FuxionBlue)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Periodo de Afiliación", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Ciclo de inicio de matriz personal", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    ExposedDropdownMenuBox(
+                        expanded = expandedPeriod,
+                        onExpandedChange = { expandedPeriod = !expandedPeriod }
+                    ) {
+                        OutlinedTextField(
+                            value = "Periodo ${userStartPeriod ?: 1}",
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedPeriod) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = FuxionBlue,
+                                unfocusedBorderColor = Color(0xFFE0E0E0)
+                            )
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedPeriod,
+                            onDismissRequest = { expandedPeriod = false }
+                        ) {
+                            (1..13).forEach { period ->
+                                DropdownMenuItem(
+                                    text = { Text("Periodo $period") },
+                                    onClick = {
+                                        scope.launch { dataStore.saveUserStartPeriod(period) }
+                                        expandedPeriod = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
 
-            // --- NUEVO NODO: NEGOCIO Y AFILIACIÓN ---
             Text("NEGOCIO Y RENTABILIDAD", style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
 
             Card(
@@ -220,9 +273,7 @@ fun SettingsScreen(
                         context.getSharedPreferences("fuxion_orders_db", Context.MODE_PRIVATE).edit().clear().apply()
 
                         scope.launch {
-                            // PURGA RELACIONAL: Destruye el esquema SQLite
                             orderRepo.wipeAllRelationalData()
-                            // PURGA DE ESTADO: Destruye configuraciones DataStore
                             dataStore.clearData()
                         }
 

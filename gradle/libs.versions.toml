@@ -1,6 +1,8 @@
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+# INYECCIÓN CRÍTICA: Motor base de Kotlin
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 

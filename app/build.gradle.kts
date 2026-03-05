@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
-    // INYECCIÓN CRÍTICA: Motor compilador de Kotlin (Restauración de dependencia)
+    // INYECCIÓN CRÍTICA: Ejecución de compilador sobre el directorio /src/
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
@@ -32,9 +33,14 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+    // INYECCIÓN CRÍTICA: Homologación forzada del compilador Kotlin
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures {
         compose = true
     }

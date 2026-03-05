@@ -7,8 +7,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import java.util.*
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import com.francisco.calculadorapedidos.data.FuxionDataStore
@@ -20,10 +18,12 @@ fun OnboardingScreen(
     onFinish: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    // Default to Jan 1st of current year if no date selected
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = System.currentTimeMillis()
     )
+
+    var expandedPeriod by remember { mutableStateOf(false) }
+    var selectedPeriod by remember { mutableIntStateOf(1) }
 
     Column(
         modifier = Modifier
@@ -33,23 +33,55 @@ fun OnboardingScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Bienvenido a tu Asistente",
+            text = "Configuración del Sistema",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Para comenzar, necesitamos saber cuándo inició el Periodo 1 de este año.",
-            style = MaterialTheme.typography.bodyLarge
+            text = "1. Defina la fecha de inicio del Periodo 1 corporativo.",
+            style = MaterialTheme.typography.bodyMedium
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
 
         DatePicker(state = datePickerState)
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "2. Asigne su Periodo de Afiliación (Inicio de Matriz).",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        ExposedDropdownMenuBox(
+            expanded = expandedPeriod,
+            onExpandedChange = { expandedPeriod = !expandedPeriod }
+        ) {
+            OutlinedTextField(
+                value = "Periodo $selectedPeriod",
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedPeriod) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            ExposedDropdownMenu(
+                expanded = expandedPeriod,
+                onDismissRequest = { expandedPeriod = false }
+            ) {
+                (1..13).forEach { period ->
+                    DropdownMenuItem(
+                        text = { Text("Periodo $period") },
+                        onClick = {
+                            selectedPeriod = period
+                            expandedPeriod = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = {
@@ -64,17 +96,15 @@ fun OnboardingScreen(
                     // 1. Persistencia de fecha corporativa global
                     dataStore.saveAnchorDate(selectedDate)
 
-                    // 2. CÁLCULO E INYECCIÓN DE DESFASE RELATIVO (Momento Cero)
-                    val anchor = java.util.Date(selectedDate)
-                    val initialStatus = com.francisco.calculadorapedidos.logic.FuxionCalendarLogic.calculateStatus(anchor)
-                    dataStore.saveUserStartPeriod(initialStatus.period)
+                    // 2. Persistencia escalar y determinista del periodo de inicio manual
+                    dataStore.saveUserStartPeriod(selectedPeriod)
 
                     onFinish()
                 }
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Comenzar Mi Negocio")
+            Text("Inicializar Arquitectura")
         }
     }
 }
