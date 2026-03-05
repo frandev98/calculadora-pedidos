@@ -22,9 +22,11 @@ import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
+import com.francisco.calculadorapedidos.logic.FuxionFinancialLogic
 import com.francisco.calculadorapedidos.ui.theme.*
 import com.francisco.calculadorapedidos.data.FuxionDataStore
-import com.francisco.calculadorapedidos.ui.ClientViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,73 +61,76 @@ fun WeekManagementScreen(
         if (slots.size > 1) 125 else slots.firstOrNull()?.targetPoints ?: 125
     }
 
-    // MUTACIÓN DE ESTADO: Mapeo de Entidad Completa (Puntos + Dinero)
     var clientProgress by remember { mutableStateOf<Map<String, OrderMetrics>>(emptyMap()) }
     var currentWeekPoints by remember { mutableIntStateOf(0) }
-    var currentWeekMoney by remember { mutableDoubleStateOf(0.0) } // Acumulador total financiero
+    var currentWeekMoney by remember { mutableDoubleStateOf(0.0) }
+
+    // VARIABLES DEL MOTOR PV4
+    var currentPV4Points by remember { mutableIntStateOf(0) }
+    var currentDiscount by remember { mutableDoubleStateOf(0.0) }
 
     var activeWildcards by remember { mutableStateOf<List<Client>>(emptyList()) }
     var showWildcardDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(year, periodId, weekId, showWildcardDialog, allClients) {
-        val progressMap = mutableMapOf<String, OrderMetrics>()
-        var totalPts = 0
-        var totalMoney = 0.0
-        val wildcardsInThisWeek = mutableListOf<Client>()
+        withContext(Dispatchers.IO) {
+            val progressMap = mutableMapOf<String, OrderMetrics>()
+            var totalPts = 0
+            var totalMoney = 0.0
+            val wildcardsInThisWeek = mutableListOf<Client>()
 
-        allClients.forEach { client ->
-            val order = orderRepository.getOrder(year, periodId, weekId, client.id)
-            val pts = order.sumOf { it.first.points * it.second }.toInt()
-            val money = order.sumOf { it.first.price * it.second }.toDouble()
+            allClients.forEach { client ->
+                val order = orderRepository.getOrder(year, periodId, weekId, client.id)
+                val pts = order.sumOf { it.first.points * it.second }.toInt()
+                val money = order.sumOf { it.first.price * it.second }.toDouble()
 
-            if (pts > 0) {
-                progressMap[client.id] = OrderMetrics(pts, money)
-                totalPts += pts
-                totalMoney += money
-                if (client.type == com.francisco.calculadorapedidos.data.ClientType.WILDCARD) {
-                    wildcardsInThisWeek.add(client)
+                if (pts > 0) {
+                    progressMap[client.id] = OrderMetrics(pts, money)
+                    totalPts += pts
+                    totalMoney += money
+                    if (client.type == com.francisco.calculadorapedidos.data.ClientType.WILDCARD) {
+                        wildcardsInThisWeek.add(client)
+                    }
+                } else if (client.type == com.francisco.calculadorapedidos.data.ClientType.FIXED) {
+                    progressMap[client.id] = OrderMetrics(0, 0.0)
                 }
-            } else if (client.type == com.francisco.calculadorapedidos.data.ClientType.FIXED) {
-                progressMap[client.id] = OrderMetrics(0, 0.0)
+            }
+
+            // CÁLCULO HISTÓRICO PV4
+            val coordinates = FuxionFinancialLogic.getPV4Coordinates(year, periodId, weekId)
+            var historicalPV4 = 0
+            coordinates.forEach { coord ->
+                historicalPV4 += orderRepository.getWeekMetrics(coord.year, coord.period, coord.week).points
+            }
+            val discount = FuxionFinancialLogic.getDiscountPercentage(historicalPV4)
+
+            withContext(Dispatchers.Main) {
+                clientProgress = progressMap
+                currentWeekPoints = totalPts
+                currentWeekMoney = totalMoney
+                activeWildcards = wildcardsInThisWeek
+                currentPV4Points = historicalPV4
+                currentDiscount = discount
             }
         }
-
-        clientProgress = progressMap
-        currentWeekPoints = totalPts
-        currentWeekMoney = totalMoney
-        activeWildcards = wildcardsInThisWeek
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Gestión: Semana $weekId ($year)") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Volver") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = BackgroundWhite,
-                    titleContentColor = TextPrimary
-                )
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Volver") } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BackgroundWhite, titleContentColor = TextPrimary)
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(BackgroundWhite)
-                .padding(16.dp)
-        ) {
+        Column(modifier = Modifier.padding(padding).fillMaxSize().background(BackgroundWhite).padding(16.dp)) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = FuxionBlue),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("OBJETIVO SEMANAL (PRO 500)", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(8.dp))
                     Text("$currentWeekPoints / $totalWeekTarget pts", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -137,12 +142,19 @@ fun WeekManagementScreen(
 
                     Spacer(Modifier.height(8.dp))
                     val progress = (currentWeekPoints.toFloat() / totalWeekTarget.toFloat()).coerceIn(0f, 1f)
-                    LinearProgressIndicator(
-                        progress = progress,
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        color = FuxionGreen,
-                        trackColor = Color.White.copy(alpha = 0.3f)
-                    )
+                    LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(8.dp), color = FuxionGreen, trackColor = Color.White.copy(alpha = 0.3f))
+
+                    // INYECCIÓN DE INDICADOR PV4
+                    Spacer(Modifier.height(12.dp))
+                    Surface(color = Color.Black.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp)) {
+                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("🔥 PV4 Actual: $currentPV4Points pts", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(8.dp))
+                            Text("|", color = Color.White.copy(alpha = 0.5f))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Descuento: ${(currentDiscount * 100).toInt()}%", color = Color(0xFFFFCC80), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 
@@ -153,7 +165,6 @@ fun WeekManagementScreen(
             LazyColumn {
                 items(slots) { slot ->
                     val clientEntity = allClients.find { it.type == com.francisco.calculadorapedidos.data.ClientType.FIXED && it.fixedIndex == slot.fixedIndex }
-
                     if (clientEntity == null) return@items
 
                     val metrics = clientProgress[clientEntity.id] ?: OrderMetrics(0, 0.0)
@@ -163,63 +174,32 @@ fun WeekManagementScreen(
                     val cardBorder = if (isCompleted) FuxionGreen else Color(0xFFE0E0E0)
 
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
-                            .clickable { onNavigateToOrder(clientEntity.id, slot.targetPoints) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { onNavigateToOrder(clientEntity.id, slot.targetPoints) },
                         colors = CardDefaults.cardColors(containerColor = cardContainer),
                         elevation = CardDefaults.cardElevation(2.dp),
                         border = BorderStroke(1.dp, cardBorder)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                color = if (isCompleted) FuxionGreen else Color(0xFFF5F5F5),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = if (!isCompleted) TextSecondary else Color.White,
-                                    modifier = Modifier.padding(8.dp)
-                                )
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = if (isCompleted) FuxionGreen else Color(0xFFF5F5F5), shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.Person, null, tint = if (!isCompleted) TextSecondary else Color.White, modifier = Modifier.padding(8.dp))
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(text = clientEntity.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(clientEntity.name, fontWeight = FontWeight.Bold, color = TextPrimary)
                                 Text("Meta: ${slot.targetPoints} pts", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
-
-                            // RENDERIZADO UX/UI: Datos Financieros Nivel 3
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(horizontalAlignment = Alignment.End) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("${metrics.points} pts", fontWeight = FontWeight.Bold, color = if (isCompleted) FuxionGreen else FuxionBlue)
-                                        if (isCompleted) {
-                                            Spacer(Modifier.width(4.dp))
-                                            Icon(Icons.Default.CheckCircle, null, tint = FuxionGreen, modifier = Modifier.size(16.dp))
-                                        }
+                                        if (isCompleted) { Spacer(Modifier.width(4.dp)); Icon(Icons.Default.CheckCircle, null, tint = FuxionGreen, modifier = Modifier.size(16.dp)) }
                                     }
                                     if (metrics.money > 0) {
-                                        Text(
-                                            text = String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money),
-                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                            color = Color.DarkGray
-                                        )
+                                        Text(String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = Color.DarkGray)
                                     }
                                 }
-
                                 Spacer(modifier = Modifier.width(8.dp))
-
-                                IconButton(onClick = {
-                                    clientToEdit = clientEntity
-                                    showEditDialog = true
-                                }) {
-                                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = TextSecondary)
-                                }
+                                IconButton(onClick = { clientToEdit = clientEntity; showEditDialog = true }) { Icon(Icons.Default.Edit, "Editar", tint = TextSecondary) }
                             }
                         }
                     }
@@ -227,11 +207,7 @@ fun WeekManagementScreen(
 
                 item {
                     Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Comodines (Ventas Extra)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
                         TextButton(onClick = { showWildcardDialog = true }) { Text("+ AGREGAR") }
                     }
@@ -242,40 +218,24 @@ fun WeekManagementScreen(
                     val metrics = clientProgress[wildcard.id] ?: OrderMetrics(0, 0.0)
 
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
-                            .clickable { onNavigateToOrder(wildcard.id, 0) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clickable { onNavigateToOrder(wildcard.id, 0) },
                         colors = CardDefaults.cardColors(containerColor = Color.White),
                         elevation = CardDefaults.cardElevation(2.dp),
                         border = BorderStroke(1.dp, FuxionBlue)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                color = FuxionBlue,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = Color.White, modifier = Modifier.padding(8.dp))
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(color = FuxionBlue, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.Person, null, tint = Color.White, modifier = Modifier.padding(8.dp))
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(text = wildcard.name, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(wildcard.name, fontWeight = FontWeight.Bold, color = TextPrimary)
                                 Text("Sin límite de meta", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
-
-                            // RENDERIZADO UX/UI: Datos Financieros Comodín
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("${metrics.points} pts", fontWeight = FontWeight.Bold, color = FuxionBlue)
                                 if (metrics.money > 0) {
-                                    Text(
-                                        text = String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money),
-                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                        color = Color.DarkGray
-                                    )
+                                    Text(String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = Color.DarkGray)
                                 }
                             }
                         }
@@ -292,30 +252,12 @@ fun WeekManagementScreen(
             onDismiss = { showEditDialog = false },
             onSave = { name, code, email, pass ->
                 if (clientToEdit?.fixedIndex != null) {
-                    clientViewModel.saveFixedClient(
-                        index = clientToEdit!!.fixedIndex!!,
-                        name = name,
-                        code = code,
-                        email = email,
-                        pass = pass
-                    )
+                    clientViewModel.saveFixedClient(clientToEdit!!.fixedIndex!!, name, code, email, pass)
                 } else {
-                    // INYECCIÓN UX: Generación de UUID en Capa UI para Ruteo Síncrono
                     val isNewWildcard = clientToEdit == null
                     val targetId = clientToEdit?.id ?: java.util.UUID.randomUUID().toString()
-
-                    clientViewModel.saveWildcardClient(
-                        name = name,
-                        code = code,
-                        email = email,
-                        pass = pass,
-                        existingId = targetId
-                    )
-
-                    // DISPARADOR AUTOMÁTICO DE NAVEGACIÓN
-                    if (isNewWildcard) {
-                        onNavigateToOrder(targetId, 0)
-                    }
+                    clientViewModel.saveWildcardClient(name, code, email, pass, targetId)
+                    if (isNewWildcard) onNavigateToOrder(targetId, 0)
                 }
                 showEditDialog = false
             }
@@ -324,7 +266,6 @@ fun WeekManagementScreen(
 
     if (showWildcardDialog) {
         val availableWildcards = allClients.filter { it.type == com.francisco.calculadorapedidos.data.ClientType.WILDCARD }
-
         AlertDialog(
             onDismissRequest = { showWildcardDialog = false },
             title = { Text("Seleccionar o Crear Comodín") },
@@ -335,22 +276,17 @@ fun WeekManagementScreen(
                             modifier = Modifier.fillMaxWidth().clickable { showWildcardDialog = false; clientToEdit = null; showEditDialog = true }.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, tint = FuxionBlue)
+                            Icon(Icons.Default.Add, null, tint = FuxionBlue)
                             Spacer(Modifier.width(16.dp))
                             Text("Crear Nuevo Comodín", fontWeight = FontWeight.Bold, color = FuxionBlue)
                         }
                         HorizontalDivider()
                     }
-
                     if (availableWildcards.isEmpty()) {
                         item { Text("No hay comodines previos disponibles.", color = Color.Gray, modifier = Modifier.padding(16.dp)) }
                     } else {
                         items(availableWildcards) { wc ->
-                            Text(
-                                text = wc.name,
-                                modifier = Modifier.fillMaxWidth().clickable { showWildcardDialog = false; onNavigateToOrder(wc.id, 0) }.padding(16.dp),
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text(wc.name, modifier = Modifier.fillMaxWidth().clickable { showWildcardDialog = false; onNavigateToOrder(wc.id, 0) }.padding(16.dp), fontWeight = FontWeight.Bold)
                             HorizontalDivider()
                         }
                     }

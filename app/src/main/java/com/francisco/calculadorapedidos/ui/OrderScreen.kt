@@ -42,6 +42,7 @@ import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 import java.util.Locale
 
+// 1. NODO PRINCIPAL (Debe ir primero)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
@@ -122,6 +123,7 @@ fun OrderScreen(
     }
 }
 
+// 2. NODO DE ENTRADA DE PRODUCTOS
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderInputView(
@@ -138,11 +140,17 @@ fun OrderInputView(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showSaveConfirmDialog by remember { mutableStateOf(false) }
 
-    val title = if (viewModel.isWeeklyMode) "Calculadora Semanal" else "Planificador de Periodo"
+    val isAffiliation = clientId == "AFFILIATION_GHOST"
+    val costMultiplier = if (isAffiliation) 0.80 else 1.0
 
-    // CÁLCULO DE MÉTRICAS EN TIEMPO REAL (O(N))
+    val title = when {
+        isAffiliation -> "Mi Afiliación (Semana 1)"
+        viewModel.isWeeklyMode -> "Calculadora Semanal"
+        else -> "Planificador de Periodo"
+    }
+
     val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
-    val totalMoney = viewModel.selectedProducts.sumOf { it.first.price * it.second } // Inyección Financiera Total
+    val totalMoney = viewModel.selectedProducts.sumOf { it.first.price * it.second * costMultiplier }
     val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
 
     val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
@@ -158,24 +166,13 @@ fun OrderInputView(
         topBar = {
             TopAppBar(
                 title = { Text(title) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
-                    }
-                },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null, tint = Color.White) } },
                 actions = {
                     if (viewModel.selectedProducts.isNotEmpty()) {
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Borrar todo", tint = Color.White)
-                        }
+                        IconButton(onClick = { showDeleteDialog = true }) { Icon(Icons.Default.Delete, null, tint = Color.White) }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primary, titleContentColor = Color.White)
             )
         },
         floatingActionButton = {
@@ -186,20 +183,11 @@ fun OrderInputView(
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
                                     if (viewModel.selectedProducts.isEmpty()) {
-                                        if (periodId != 0 && weekId != 0) {
-                                            orderRepository.clearOrder(year, periodId, weekId, clientId)
-                                        }
+                                        if (periodId != 0 && weekId != 0) orderRepository.clearOrder(year, periodId, weekId, clientId)
                                         onBack()
                                     } else {
-                                        if (periodId != 0 && weekId != 0) {
-                                            orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
-                                        }
-
-                                        if (isWeeklyGoalMet) {
-                                            showSuccessDialog = true
-                                        } else {
-                                            showSaveConfirmDialog = true
-                                        }
+                                        if (periodId != 0 && weekId != 0) orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
+                                        if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
                                     }
                                 } else {
                                     viewModel.onPrincipalActionButtonClick()
@@ -207,34 +195,24 @@ fun OrderInputView(
                             }
                         },
                         containerColor = if (!canProceed && !viewModel.isWeeklyMode) Color.Gray
-                        else if (viewModel.isWeeklyMode && !isWeeklyGoalMet && viewModel.selectedProducts.isNotEmpty()) ProgressOrange
+                        else if (viewModel.isWeeklyMode && !isWeeklyGoalMet && viewModel.selectedProducts.isNotEmpty() && !isAffiliation) ProgressOrange
                         else Color(0xFF4CAF50),
                         contentColor = Color.White,
                         modifier = Modifier.padding(bottom = 16.dp)
                     ) {
                         if (viewModel.isWeeklyMode) {
                             if (viewModel.selectedProducts.isEmpty()) {
-                                Icon(Icons.Default.Check, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("CONFIRMAR")
-                            } else if (isWeeklyGoalMet) {
-                                Icon(Icons.Default.Check, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("LISTO")
+                                Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text("CONFIRMAR")
+                            } else if (isWeeklyGoalMet || isAffiliation) {
+                                Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text("LISTO")
                             } else {
-                                Icon(Icons.Default.Save, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("GUARDAR AVANCE")
+                                Icon(Icons.Default.Save, null); Spacer(Modifier.width(8.dp)); Text("GUARDAR AVANCE")
                             }
                         } else {
                             if (canProceed) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("CALCULAR")
+                                Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text("CALCULAR")
                             } else {
-                                Icon(Icons.Default.Lock, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("VACÍO")
+                                Icon(Icons.Default.Lock, null); Spacer(Modifier.width(8.dp)); Text("VACÍO")
                             }
                         }
                     }
@@ -246,36 +224,26 @@ fun OrderInputView(
                     contentColor = Color.White,
                     elevation = FloatingActionButtonDefaults.elevation(8.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("AGREGAR PRODUCTO")
+                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("AGREGAR PRODUCTO")
                 }
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-        ) {
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             GamifiedProgressHeader(
                 currentPoints = totalPoints,
-                currentMoney = totalMoney, // PROPAGACIÓN DE VARIABLE MONETARIA
+                currentMoney = totalMoney,
                 targetGoal = viewModel.targetGoal,
-                isWeekly = viewModel.isWeeklyMode
+                isWeekly = viewModel.isWeeklyMode,
+                isAffiliation = isAffiliation
             )
 
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 220.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(
-                    items = viewModel.selectedProducts,
-                    key = { (product, _) -> product.id }
-                ) { (product, quantity) ->
+            LazyColumn(contentPadding = PaddingValues(bottom = 220.dp), modifier = Modifier.weight(1f)) {
+                items(items = viewModel.selectedProducts, key = { (product, _) -> product.id }) { (product, quantity) ->
                     SelectedProductItem(
                         product = product,
                         quantity = quantity,
+                        isAffiliation = isAffiliation, // HOMOLOGACIÓN DE FIRMA: Pasa el parámetro correctamente
                         onInc = { viewModel.incrementQuantity(product) },
                         onDec = { if (quantity > 1) viewModel.decrementQuantity(product) },
                         onRemove = { viewModel.removeProduct(product) }
@@ -287,35 +255,17 @@ fun OrderInputView(
 
     if (showCatalog) {
         val currentIds = remember(viewModel.selectedProducts.size) { viewModel.selectedProducts.map { it.first.id } }
-        CatalogDialog(
-            onDismiss = { showCatalog = false },
-            onProductSelected = { viewModel.addProduct(it) },
-            excludedIds = currentIds
-        )
+        CatalogDialog(onDismiss = { showCatalog = false }, onProductSelected = { viewModel.addProduct(it) }, excludedIds = currentIds)
     }
 
-    if (showSuccessDialog) {
-        SuccessDialog(
-            onDismiss = {
-                showSuccessDialog = false
-                onBack()
-            }
-        )
-    }
+    if (showSuccessDialog) { SuccessDialog(onDismiss = { showSuccessDialog = false; onBack() }) }
 
     if (showSaveConfirmDialog) {
         AlertDialog(
             onDismissRequest = { showSaveConfirmDialog = false },
             title = { Text("Avance Guardado") },
             text = { Text("Tus productos se han guardado. Puedes continuar editando más tarde.") },
-            confirmButton = {
-                Button(onClick = {
-                    showSaveConfirmDialog = false
-                    onBack()
-                }) {
-                    Text("Entendido")
-                }
-            }
+            confirmButton = { Button(onClick = { showSaveConfirmDialog = false; onBack() }) { Text("Entendido") } }
         )
     }
 
@@ -328,26 +278,167 @@ fun OrderInputView(
                 Button(
                     onClick = {
                         viewModel.clearCart()
-                        if (!viewModel.isWeeklyMode && periodId != 0) {
-                            orderRepository.clearPeriodDraft(year, periodId)
-                        }
+                        if (!viewModel.isWeeklyMode && periodId != 0) orderRepository.clearPeriodDraft(year, periodId)
                         showDeleteDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                ) {
-                    Text("Borrar")
-                }
+                ) { Text("Borrar") }
             },
-            dismissButton = {
-                OutlinedButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancelar")
-                }
-            }
+            dismissButton = { OutlinedButton(onClick = { showDeleteDialog = false }) { Text("Cancelar") } }
         )
     }
 
-    if (viewModel.isLoading) {
-        CalculatingDialog()
+    if (viewModel.isLoading) { CalculatingDialog() }
+}
+
+// 3. COMPONENTES VISUALES Y REUTILIZABLES
+data class ProgressState(
+    val target: Double,
+    val progress: Double,
+    val message: String,
+    val color: Color
+)
+
+@Composable
+fun GamifiedProgressHeader(
+    currentPoints: Double,
+    currentMoney: Double,
+    targetGoal: Int,
+    isWeekly: Boolean,
+    isAffiliation: Boolean = false
+) {
+    val goal = targetGoal.toDouble()
+    val isWildcard = isWeekly && targetGoal == 0 && !isAffiliation
+
+    val state = if (isAffiliation) {
+        if (currentPoints < goal) {
+            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
+            val left = goal - currentPoints
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu código", ProgressOrange)
+        } else {
+            ProgressState(goal, 1.0, "¡Paquete de Afiliación Activo! 🎉", FuxionGreen)
+        }
+    } else if (isWeekly) {
+        if (isWildcard) {
+            ProgressState(0.0, 1.0, "Venta Libre (Sin Límite) 🌟", FuxionBlue)
+        } else if (currentPoints < goal) {
+            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
+            val left = goal - currentPoints
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
+        } else {
+            ProgressState(goal, 1.0, "¡Meta Semanal Cumplida! 🎉", FuxionGreen)
+        }
+    } else {
+        if (currentPoints < goal) {
+            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
+            val left = goal - currentPoints
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para el PRO $targetGoal", ProgressOrange)
+        } else {
+            ProgressState(goal, 1.0, "¡IMPARABLE! Nivel PRO $targetGoal Alcanzado 🚀", FuxionGreen)
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        elevation = CardDefaults.cardElevation(6.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceWhite)
+    ) {
+        Column(Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+
+            val titleText = when {
+                isAffiliation -> "PAQUETE INICIAL (-20%)"
+                isWildcard -> "VENTA COMODÍN"
+                else -> "TU PROGRESO"
+            }
+
+            Text(titleText, style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("$currentPoints pts", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold, color = TextPrimary)
+
+            if (currentMoney > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = String.format(java.util.Locale("es", "PE"), "S/ %,.2f", currentMoney),
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = Color.DarkGray, fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = state.progress.toFloat(),
+                modifier = Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)),
+                color = state.color, trackColor = Color(0xFFECEFF1),
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (state.progress >= 1.0 && !isWildcard) Icons.Default.Star else Icons.Default.Info, null, tint = state.color, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(state.message, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = state.color)
+            }
+        }
+    }
+}
+
+// HOMOLOGACIÓN DE FIRMA: Se inyecta isAffiliation en la declaración original
+@Composable
+fun SelectedProductItem(
+    product: Product,
+    quantity: Int,
+    isAffiliation: Boolean = false,
+    onInc: () -> Unit,
+    onDec: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        elevation = CardDefaults.cardElevation(3.dp),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val context = LocalContext.current
+            val imageResId = remember(product.imageRes) { ProductCatalog.getXmlImageId(context, product.imageRes) }
+            Surface(shape = MaterialTheme.shapes.small, color = Color(0xFFF5F5F5), modifier = Modifier.size(60.dp)) {
+                Image(painter = painterResource(id = imageResId), contentDescription = product.name, modifier = Modifier.padding(4.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF333333), maxLines = 2)
+                Text(product.presentation, style = MaterialTheme.typography.bodySmall, color = Color(0xFF757575))
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val rowPoints = product.points * quantity
+                    val formattedPoints = if (rowPoints % 1.0 == 0.0) rowPoints.toInt().toString() else rowPoints.toString()
+                    val costMultiplier = if (isAffiliation) 0.80 else 1.0
+                    val rowPrice = product.price * quantity * costMultiplier
+
+                    Text("$formattedPoints pts", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(12.dp))
+                    Text(String.format(java.util.Locale("es", "PE"), "S/ %,.2f", rowPrice), style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace), color = Color.DarkGray, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.SpaceBetween) {
+                Box(contentAlignment = Alignment.TopEnd, modifier = Modifier.size(24.dp)) {
+                    IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = Color(0xFFBDBDBD), modifier = Modifier.size(18.dp)) }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.background(Color(0xFFF5F5F5), shape = MaterialTheme.shapes.medium).height(36.dp).width(100.dp)
+                ) {
+                    IconButton(onClick = onDec, modifier = Modifier.weight(1f)) { Text("-", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                    Text("$quantity", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                    IconButton(onClick = onInc, modifier = Modifier.weight(1f)) { Text("+", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                }
+            }
+        }
     }
 }
 
@@ -544,233 +635,6 @@ fun ProductResultRow(item: DistributedItem) {
                     text = "${item.totalPoints} pts",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDec: () -> Unit, onRemove: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        elevation = CardDefaults.cardElevation(3.dp),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = Color.White)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val context = LocalContext.current
-            val imageResId = remember(product.imageRes) {
-                ProductCatalog.getXmlImageId(context, product.imageRes)
-            }
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                color = Color(0xFFF5F5F5),
-                modifier = Modifier.size(60.dp)
-            ) {
-                Image(
-                    painter = painterResource(id = imageResId),
-                    contentDescription = product.name,
-                    modifier = Modifier.padding(4.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = product.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF333333),
-                    maxLines = 2
-                )
-                Text(
-                    text = product.presentation,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF757575)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // RENDERIZADO UX/UI: Subtotales Dinámicos (Puntos y Dinero)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-
-                    // Cálculo de puntos totales por fila (Dinámico)
-                    val rowPoints = product.points * quantity
-                    val formattedPoints = if (rowPoints % 1.0 == 0.0) rowPoints.toInt().toString() else rowPoints.toString()
-
-                    Text(
-                        text = "$formattedPoints pts",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF2E7D32),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = String.format(Locale("es", "PE"), "S/ %,.2f", product.price * quantity),
-                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                        color = Color.DarkGray,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                Box(
-                    contentAlignment = Alignment.TopEnd,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Eliminar",
-                            tint = Color(0xFFBDBDBD),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .background(Color(0xFFF5F5F5), shape = MaterialTheme.shapes.medium)
-                        .height(36.dp)
-                        .width(100.dp)
-                ) {
-                    IconButton(onClick = onDec, modifier = Modifier.weight(1f)) {
-                        Text("-", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                    Text(
-                        text = "$quantity",
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onInc, modifier = Modifier.weight(1f)) {
-                        Text("+", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-data class ProgressState(
-    val target: Double,
-    val progress: Double,
-    val message: String,
-    val color: Color
-)
-
-@Composable
-fun GamifiedProgressHeader(
-    currentPoints: Double,
-    currentMoney: Double,
-    targetGoal: Int,
-    isWeekly: Boolean
-) {
-    val goal = targetGoal.toDouble()
-
-    // IDENTIFICADOR DE ESTADO: Detecta si la pantalla es un nodo de Venta Libre
-    val isWildcard = isWeekly && targetGoal == 0
-
-    val state = if (isWeekly) {
-        if (isWildcard) {
-            // MODO COMODÍN: Progreso infinito y refuerzo positivo azul
-            ProgressState(0.0, 1.0, "Venta Libre (Sin Límite) 🌟", FuxionBlue)
-        } else if (currentPoints < goal) {
-            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
-            val left = goal - currentPoints
-            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
-        } else {
-            ProgressState(goal, 1.0, "¡Meta Semanal Cumplida! 🎉", FuxionGreen)
-        }
-    } else {
-        if (currentPoints < goal) {
-            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
-            val left = goal - currentPoints
-            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para el PRO $targetGoal", ProgressOrange)
-        } else {
-            ProgressState(goal, 1.0, "¡IMPARABLE! Nivel PRO $targetGoal Alcanzado 🚀", FuxionGreen)
-        }
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
-        elevation = CardDefaults.cardElevation(6.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceWhite)
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp).fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // MUTACIÓN DE TÍTULO SEGÚN ESTADO
-            Text(
-                text = if (isWildcard) "VENTA COMODÍN" else "TU PROGRESO",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "$currentPoints pts",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary
-            )
-
-            if (currentMoney > 0) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = String.format(java.util.Locale("es", "PE"), "S/ %,.2f", currentMoney),
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
-                    color = Color.DarkGray,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // BARRA DE PROGRESO (Siempre llena y azul en Modo Comodín)
-            LinearProgressIndicator(
-                progress = state.progress.toFloat(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(6.dp)),
-                color = state.color,
-                trackColor = Color(0xFFECEFF1),
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (state.progress >= 1.0 && !isWildcard) Icons.Default.Star else Icons.Default.Info,
-                    contentDescription = null,
-                    tint = state.color,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = state.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = state.color
                 )
             }
         }

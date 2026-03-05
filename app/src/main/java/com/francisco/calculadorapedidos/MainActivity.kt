@@ -171,10 +171,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // RUTA 7: CONFIGURACIÓN GENERAL
                         composable("settings") {
                             SettingsScreen(
                                 dataStore = dataStore,
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                // INYECCIÓN: Ruta directa hacia la Orden Fantasma (Semana 1)
+                                onNavigateToAffiliation = { year, startPeriod ->
+                                    navController.navigate("order_screen/$year/$startPeriod/1/AFFILIATION_GHOST/40")
+                                }
                             )
                         }
                     }

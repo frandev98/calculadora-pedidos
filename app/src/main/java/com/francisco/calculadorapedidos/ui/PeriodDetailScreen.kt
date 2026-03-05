@@ -20,14 +20,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
+import com.francisco.calculadorapedidos.logic.FuxionFinancialLogic
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
 import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
 import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -57,8 +61,51 @@ fun PeriodDetailScreen(
     val currentStatus = remember(anchor) { FuxionCalendarLogic.calculateStatus(anchor) }
     val isCurrentPeriod = currentStatus.period == periodId
 
-    val targetGoal = 500
+    // ESTADOS DEL MOTOR FINANCIERO
+    var periodTotalPoints by remember { mutableIntStateOf(0) }
+    var totalDirectSalesBonus by remember { mutableDoubleStateOf(0.0) }
+    var pro1Bonus by remember { mutableDoubleStateOf(0.0) }
+    var weeklyMetricsMap by remember { mutableStateOf<Map<Int, OrderMetrics>>(emptyMap()) }
 
+    // EJECUCIÓN ASÍNCRONA DE RENTABILIDAD GLOBAL
+    LaunchedEffect(year, periodId, refreshTrigger) {
+        withContext(Dispatchers.IO) {
+            var tempPoints = 0
+            var tempDirectSalesBonus = 0.0
+            val metricsMap = mutableMapOf<Int, OrderMetrics>()
+
+            for (w in 1..4) {
+                // Extracción de datos base de la semana
+                val metrics = orderRepository.getWeekMetrics(year, periodId, w)
+                metricsMap[w] = metrics
+                tempPoints += metrics.points
+
+                if (metrics.money > 0) {
+                    // Cálculo de descuento dependiente de la semana (PV4)
+                    val coords = FuxionFinancialLogic.getPV4Coordinates(year, periodId, w)
+                    var weekHistoricalPV4 = 0
+                    coords.forEach { coord ->
+                        weekHistoricalPV4 += orderRepository.getWeekMetrics(coord.year, coord.period, coord.week).points
+                    }
+                    val discount = FuxionFinancialLogic.getDiscountPercentage(weekHistoricalPV4)
+
+                    // Acumulación matemática neta
+                    tempDirectSalesBonus += FuxionFinancialLogic.calculateDirectSalesBonus(metrics.money, discount)
+                }
+            }
+
+            val computedPro1 = FuxionFinancialLogic.calculatePro1Bonus(tempPoints)
+
+            withContext(Dispatchers.Main) {
+                weeklyMetricsMap = metricsMap
+                periodTotalPoints = tempPoints
+                totalDirectSalesBonus = tempDirectSalesBonus
+                pro1Bonus = computedPro1
+            }
+        }
+    }
+
+    val targetGoal = 500
     val dateFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
     val fullDateFormat = SimpleDateFormat("dd 'de' MMM", Locale("es", "ES"))
 
@@ -66,49 +113,57 @@ fun PeriodDetailScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Periodo $periodId ($year)") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Volver") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = BackgroundWhite,
-                    titleContentColor = TextPrimary
-                )
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Volver") } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = BackgroundWhite, titleContentColor = TextPrimary)
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .background(BackgroundWhite)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+            modifier = Modifier.padding(padding).fillMaxSize().background(BackgroundWhite).verticalScroll(rememberScrollState()).padding(16.dp)
         ) {
-            Text(
-                text = "${fullDateFormat.format(periodDates.first)} - ${fullDateFormat.format(periodDates.second)}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-
+            Text("${fullDateFormat.format(periodDates.first)} - ${fullDateFormat.format(periodDates.second)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(24.dp))
-            Text("Objetivo Estratégico", style = MaterialTheme.typography.labelLarge, color = TextSecondary, fontWeight = FontWeight.Bold)
+
+            // TARJETA DE RENTABILIDAD Y OBJETIVO GLOBAL
+            Text("Rentabilidad del Periodo", style = MaterialTheme.typography.labelLarge, color = TextSecondary, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
-                border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                colors = CardDefaults.cardColors(containerColor = if(periodTotalPoints >= targetGoal) Color(0xFFE8F5E9) else Color(0xFFF5F5F5)),
+                border = BorderStroke(1.dp, if(periodTotalPoints >= targetGoal) FuxionGreen else Color(0xFFE0E0E0))
             ) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(color = FuxionGreen, shape = CircleShape, modifier = Modifier.size(48.dp)) {
-                        Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.White, modifier = Modifier.padding(10.dp))
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(color = if(periodTotalPoints >= targetGoal) FuxionGreen else TextSecondary, shape = CircleShape, modifier = Modifier.size(48.dp)) {
+                            Icon(Icons.Default.Star, null, tint = Color.White, modifier = Modifier.padding(10.dp))
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Nivel PRO 500", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text("Progreso: $periodTotalPoints / $targetGoal pts", style = MaterialTheme.typography.bodyMedium, color = if(periodTotalPoints >= targetGoal) FuxionGreen else TextSecondary, fontWeight = FontWeight.Bold)
+                        }
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(text = "Nivel PRO 500", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(text = "Matriz de 13 Semanas (500 pts)", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+
+                    // DESGLOSE FINANCIERO INYECTADO
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider(color = Color.Black.copy(alpha = 0.05f))
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Venta Directa Estimada:", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                        Text(String.format(Locale("es", "PE"), "S/ %,.2f", totalDirectSalesBonus), style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), fontWeight = FontWeight.Bold, color = TextPrimary)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Bono PRO 1:", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
+                        Text(String.format(Locale("es", "PE"), "S/ %,.2f", pro1Bonus), style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace), fontWeight = FontWeight.Bold, color = if (pro1Bonus > 0) FuxionGreen else TextSecondary)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(8.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("GANANCIA NETA:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = FuxionBlue)
+                        Text(String.format(Locale("es", "PE"), "S/ %,.2f", totalDirectSalesBonus + pro1Bonus), style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace), fontWeight = FontWeight.ExtraBold, color = FuxionBlue)
                     }
                 }
             }
@@ -125,11 +180,7 @@ fun PeriodDetailScreen(
                 val weekSlots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod!!)
                 val specificTarget = if (weekSlots.size > 1) 125 else weekSlots.firstOrNull()?.targetPoints ?: 125
 
-                // LECTURA CONSOLIDADA
-                val metrics = remember(year, periodId, weekIndex, targetGoal, refreshTrigger) {
-                    orderRepository.getWeekMetrics(year, periodId, weekIndex)
-                }
-
+                val metrics = weeklyMetricsMap[weekIndex] ?: OrderMetrics(0, 0.0)
                 val hasOrder = metrics.points > 0
                 val isGoalMet = metrics.points >= specificTarget
 
@@ -138,7 +189,7 @@ fun PeriodDetailScreen(
                     dateRange = "${dateFormat.format(weekStartDate)} - ${dateFormat.format(weekEndDate)}",
                     target = specificTarget,
                     savedPoints = metrics.points,
-                    savedMoney = metrics.money, // INYECCIÓN
+                    savedMoney = metrics.money, // INYECCIÓN RECUPERADA
                     isCurrent = isThisWeekActive,
                     hasOrder = hasOrder,
                     isGoalMet = isGoalMet,
@@ -157,9 +208,9 @@ fun PeriodDetailScreen(
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, FuxionBlue)
             ) {
-                Icon(imageVector = Icons.Default.AutoGraph, contentDescription = null, tint = FuxionBlue)
+                Icon(Icons.Default.AutoGraph, null, tint = FuxionBlue)
                 Spacer(Modifier.width(8.dp))
-                Text(text = "Planificar Periodo Completo", color = FuxionBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                Text("Planificar Periodo Completo", color = FuxionBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
             }
             Spacer(modifier = Modifier.height(32.dp))
         }
@@ -172,7 +223,7 @@ fun WeekCard(
     dateRange: String,
     target: Int,
     savedPoints: Int,
-    savedMoney: Double, // NUEVA VARIABLE
+    savedMoney: Double,
     isCurrent: Boolean,
     hasOrder: Boolean,
     isGoalMet: Boolean,
@@ -201,10 +252,7 @@ fun WeekCard(
         shape = RoundedCornerShape(12.dp),
         border = borderStroke
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -218,7 +266,6 @@ fun WeekCard(
                             else -> TextPrimary
                         }
                     )
-
                     if (isCurrent) {
                         Spacer(Modifier.width(8.dp))
                         Surface(color = FuxionBlue, shape = RoundedCornerShape(4.dp)) {
@@ -230,7 +277,6 @@ fun WeekCard(
                 Text(text = dateRange, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
 
-            // RENDERIZADO UX/UI: Datos Financieros Nivel 2
             Column(horizontalAlignment = Alignment.End) {
                 Surface(
                     color = when {
