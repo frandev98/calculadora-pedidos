@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     // INYECCIÓN CRÍTICA: Motor compilador de Kotlin (Restauración de dependencia)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
