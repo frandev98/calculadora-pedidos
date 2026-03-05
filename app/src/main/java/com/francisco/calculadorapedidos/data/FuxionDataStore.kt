@@ -1,117 +1,66 @@
-package com.francisco.calculadorapedidos.logic
+package com.francisco.calculadorapedidos.data
 
-import java.util.Calendar
-import java.util.Date
-import java.util.concurrent.TimeUnit
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-// Definición estructural de la ranura de cliente
-data class WeeklySlotDef(val slotId: String, val fixedIndex: Int, val fallbackName: String, val targetPoints: Int)
+// Extensión para crear el DataStore
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "fuxion_prefs")
 
-object FuxionCalendarLogic {
+class FuxionDataStore(private val context: Context) {
 
-    fun getAbsoluteWeek(periodId: Int, weekIndex: Int): Int {
-        return ((periodId - 1) * 4) + weekIndex
+    companion object {
+        val KEY_ANCHOR_DATE = longPreferencesKey("anchor_date_p1")
+        // Declaración de Llave Estricta para Desfase de Matriz
+        val USER_START_PERIOD = intPreferencesKey("user_start_period")
     }
 
-    fun getCycleWeek(absoluteWeek: Int): Int {
-        val cycle = absoluteWeek % 13
-        return if (cycle == 0) 13 else cycle
-    }
+    // --- ANCHOR DATE (Inicio P1) ---
+    val anchorDateFlow: Flow<Long?> = context.dataStore.data
+        .map { preferences ->
+            preferences[KEY_ANCHOR_DATE]
+        }
 
-    // CORRECCIÓN APLICADA: Tipo de retorno mutado de ClientSlot a WeeklySlotDef
-    fun getSlotsForWeek(periodId: Int, weekId: Int, userStartPeriod: Int): List<WeeklySlotDef> {
-        val deltaPeriods = (periodId - userStartPeriod + 13) % 13
-        val relativeAbsWeek = (deltaPeriods * 4) + weekId
-        val cycleWeek = ((relativeAbsWeek - 1) % 13) + 1
-
-        return when (cycleWeek) {
-            1 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
-            2 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C4", 4, "Cliente 4", 60))
-            3 -> listOf(WeeklySlotDef("C5", 5, "Cliente 5", 60), WeeklySlotDef("C6", 6, "Cliente 6", 60))
-            4 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C7", 7, "Cliente 7", 60))
-            5 -> listOf(WeeklySlotDef("C2", 2, "Cliente 2", 60), WeeklySlotDef("C8", 8, "Cliente 8", 60))
-            6 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C9", 9, "Cliente 9", 60))
-            7 -> listOf(WeeklySlotDef("C4", 4, "Cliente 4", 60), WeeklySlotDef("C5", 5, "Cliente 5", 60))
-            8 -> listOf(WeeklySlotDef("C6", 6, "Cliente 6", 60), WeeklySlotDef("C7", 7, "Cliente 7", 60))
-            9 -> listOf(WeeklySlotDef("C8", 8, "Cliente 8", 60), WeeklySlotDef("C1", 1, "Cliente 1", 60))
-            10 -> listOf(WeeklySlotDef("C9", 9, "Cliente 9", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
-            11 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 125))
-            12 -> listOf(WeeklySlotDef("C4", 4, "Cliente 4", 125))
-            13 -> listOf(WeeklySlotDef("C9", 9, "Cliente 9", 125))
-            else -> emptyList()
+    suspend fun saveAnchorDate(timestamp: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_ANCHOR_DATE] = timestamp
         }
     }
 
-    data class FuxionStatus(
-        val period: Int,
-        val week: Int,
-        val currentDayOfPeriod: Int,
-        val daysRemainingInWeek: Int,
-        val periodStartDate: Date,
-        val weekStartDate: Date,
-        val weekEndDate: Date
-    )
-
-    fun calculateStatus(anchorDate: Date, currentDate: Date = Date()): FuxionStatus {
-        val startCa = Calendar.getInstance().apply { time = anchorDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-        val currentCa = Calendar.getInstance().apply { time = currentDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-
-        val diffMillis = currentCa.timeInMillis - startCa.timeInMillis
-        val diffDays = TimeUnit.MILLISECONDS.toDays(diffMillis).toInt()
-
-        if (diffDays < 0) return FuxionStatus(1, 1, 1, 6, anchorDate, anchorDate, addDays(anchorDate, 6))
-
-        val totalWeeksPassed = diffDays / 7
-        val periodIndex = totalWeeksPassed / 4
-        val currentPeriod = periodIndex + 1
-        val weekIndex = totalWeeksPassed % 4
-        val currentWeek = weekIndex + 1
-        val currentDayOfPeriod = (diffDays % 28) + 1
-        val dayOfWeekIndex = diffDays % 7
-        val daysRemainingInWeek = 6 - dayOfWeekIndex
-        val currentPeriodStartDate = addDays(anchorDate, periodIndex * 28)
-        val currentWeekStartDate = addDays(anchorDate, totalWeeksPassed * 7)
-        val currentWeekEndDate = addDays(currentWeekStartDate, 6)
-
-        return FuxionStatus(
-            period = currentPeriod,
-            week = currentWeek,
-            currentDayOfPeriod = currentDayOfPeriod,
-            daysRemainingInWeek = daysRemainingInWeek,
-            periodStartDate = currentPeriodStartDate,
-            weekStartDate = currentWeekStartDate,
-            weekEndDate = currentWeekEndDate
-        )
-    }
-
-    fun getFullYearPlan(anchorDate: Date): List<PeriodInfo> {
-        val list = mutableListOf<PeriodInfo>()
-        var pointer = Calendar.getInstance().apply { time = anchorDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-
-        for (p in 1..13) {
-            val start = pointer.time
-            pointer.add(Calendar.DAY_OF_YEAR, 27)
-            val end = pointer.time
-            pointer.add(Calendar.DAY_OF_YEAR, 1)
-
-            list.add(PeriodInfo(p, start, end))
+    // --- COORDENADA DE DESFASE (MATRIZ RELATIVA) ---
+    val userStartPeriodFlow: Flow<Int?> = context.dataStore.data
+        .map { preferences ->
+            preferences[USER_START_PERIOD]
         }
-        return list
+
+    suspend fun saveUserStartPeriod(period: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[USER_START_PERIOD] = period
+        }
     }
 
-    data class PeriodInfo(val number: Int, val start: Date, val end: Date)
+    // --- METAS POR PERIODO ---
+    fun getGoalForPeriod(period: Int): Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[intPreferencesKey("goal_p$period")] ?: 540 // Default 540 (Base)
+        }
 
-    fun addDays(date: Date, days: Int): Date {
-        val c = Calendar.getInstance()
-        c.time = date
-        c.add(Calendar.DAY_OF_YEAR, days)
-        return c.time
+    suspend fun saveGoalForPeriod(period: Int, goal: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[intPreferencesKey("goal_p$period")] = goal
+        }
     }
 
-    fun getPeriodDates(anchor: Date, periodNumber: Int): Pair<Date, Date> {
-        val daysToStart = (periodNumber - 1) * 28
-        val start = addDays(anchor, daysToStart)
-        val end = addDays(start, 27)
-        return Pair(start, end)
+    // --- PURGA DE DATOS ---
+    suspend fun clearData() {
+        context.dataStore.edit { preferences ->
+            preferences.clear()
+        }
     }
 }

@@ -30,7 +30,7 @@ class OrderViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
 
-    var targetGoal by mutableStateOf(540)
+    var targetGoal by mutableStateOf(500)
         private set
 
     var isWeeklyMode by mutableStateOf(false)

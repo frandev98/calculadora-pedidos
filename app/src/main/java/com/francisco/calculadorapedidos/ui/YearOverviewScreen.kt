@@ -16,10 +16,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.francisco.calculadorapedidos.data.FuxionDataStore
+import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.*
@@ -30,20 +32,18 @@ import java.util.*
 @Composable
 fun YearOverviewScreen(
     dataStore: FuxionDataStore,
-    onPeriodClick: (Int, Int) -> Unit, // FIRMA MUTADA: Requiere (Año, Periodo)
+    onPeriodClick: (Int, Int) -> Unit,
     onSettingsClick: () -> Unit,
     onClientsClick: () -> Unit
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
-    // ESTADO COMPUESTO: Llave es Pair(Año, Periodo)
-    var periodPointsMap by remember { mutableStateOf<Map<Pair<Int, Int>, Int>>(emptyMap()) }
+    // ESTADO COMPUESTO FINANCIERO: Llave es Pair(Año, Periodo)
+    var periodMetricsMap by remember { mutableStateOf<Map<Pair<Int, Int>, OrderMetrics>>(emptyMap()) }
 
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
 
-    // TODO: Estos valores deben provenir de FuxionDataStore en el futuro.
-    // Por ahora, se asume el año y periodo actual como el punto de inicio (Fallback).
     val fallbackYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
     var userStartPeriod by remember { mutableIntStateOf(1) }
     var userStartYear by remember { mutableIntStateOf(fallbackYear) }
@@ -56,14 +56,12 @@ fun YearOverviewScreen(
     val anchor = Date(anchorDate!!)
     val status = remember(anchorDate) { FuxionCalendarLogic.calculateStatus(anchor) }
 
-    // Inyección de estado inicial (Simulación de Onboarding dinámico)
     LaunchedEffect(status) {
-        // En producción, esto se lee del DataStore. Si es la primera vez, se graba el status actual.
         userStartPeriod = status.period
         userStartYear = fallbackYear
     }
 
-    // ARITMÉTICA DE VENTANA DESLIZANTE (Rolling Time Window)
+    // ARITMÉTICA DE VENTANA DESLIZANTE
     val rollingWindow = remember(userStartPeriod, userStartYear) {
         val window = mutableListOf<Pair<Int, Int>>()
         for (i in 0 until 13) {
@@ -74,17 +72,18 @@ fun YearOverviewScreen(
         window
     }
 
-    // HIDRATACIÓN DE ESTADO 4D
+    // HIDRATACIÓN DE ESTADO 4D CONSOLIDADO (Puntos + Soles)
     LaunchedEffect(rollingWindow) {
-        val newPointsMap = mutableMapOf<Pair<Int, Int>, Int>()
+        val newMetricsMap = mutableMapOf<Pair<Int, Int>, OrderMetrics>()
         for ((year, period) in rollingWindow) {
-            newPointsMap[Pair(year, period)] = orderRepository.getPeriodTotalPoints(year, period)
+            newMetricsMap[Pair(year, period)] = orderRepository.getPeriodMetrics(year, period)
         }
-        periodPointsMap = newPointsMap
+        periodMetricsMap = newMetricsMap
     }
 
     val today = Date()
-    val todayFormat = SimpleDateFormat("EEEE, d 'DE' MMMM", Locale("es", "ES"))
+    // CORRECCIÓN: Inyección del Año en la fecha principal superior
+    val todayFormat = SimpleDateFormat("EEEE, d 'DE' MMMM 'DE' yyyy", Locale("es", "ES"))
     val rangeFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
 
     Scaffold(
@@ -141,6 +140,11 @@ fun YearOverviewScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("PERIODO", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                                 Text("${status.period}", color = Color.White, style = MaterialTheme.typography.displayLarge.copy(fontSize = 72.sp), fontWeight = FontWeight.Bold, lineHeight = 72.sp)
+
+                                // INYECCIÓN VISUAL: Insignia del Año actual bajo el Periodo
+                                Surface(color = Color.White.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                                    Text("AÑO $fallbackYear", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
                             }
                             Spacer(modifier = Modifier.width(32.dp))
                             Box(modifier = Modifier.width(1.dp).height(60.dp).background(Color.White.copy(alpha = 0.3f)))
@@ -154,6 +158,8 @@ fun YearOverviewScreen(
                                     Spacer(Modifier.width(6.dp))
                                     Text("${rangeFormat.format(status.weekStartDate)} - ${rangeFormat.format(status.weekEndDate)}", color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                 }
+
+                                // RESTAURACIÓN: Componente de Días Restantes
                                 Spacer(Modifier.height(10.dp))
                                 Surface(
                                     color = if (status.daysRemainingInWeek <= 2) Color(0xFFFFCC80) else Color.White.copy(alpha = 0.2f),
@@ -185,14 +191,11 @@ fun YearOverviewScreen(
 
             // ITERACIÓN SOBRE MATRIZ DESLIZANTE
             items(rollingWindow) { (year, periodNum) ->
-                // NOTA: Para obtener fechas exactas futuras/pasadas, getPeriodDates debe ser refactorizado
-                // para aceptar el año, actualmente solo operará con el anchor original.
                 val (start, end) = FuxionCalendarLogic.getPeriodDates(anchor, periodNum)
-
-                // Determinación de estado actual cruzando Año y Periodo
                 val isCurrent = (periodNum == status.period && year == fallbackYear)
 
-                val totalPoints = periodPointsMap[Pair(year, periodNum)] ?: 0
+                // LECTURA DE MÉTRICAS COMPUESTAS (Puntos y Dinero)
+                val metrics = periodMetricsMap[Pair(year, periodNum)] ?: OrderMetrics(0, 0.0)
                 val targetGoal = 500
 
                 PeriodCard(
@@ -200,7 +203,8 @@ fun YearOverviewScreen(
                     yearNumber = year,
                     dateRange = "${rangeFormat.format(start)} - ${rangeFormat.format(end)}",
                     isCurrent = isCurrent,
-                    currentPoints = totalPoints,
+                    currentPoints = metrics.points,
+                    currentMoney = metrics.money, // INYECCIÓN FINANCIERA
                     goalPoints = targetGoal,
                     onClick = { onPeriodClick(year, periodNum) }
                 )
@@ -215,10 +219,11 @@ fun YearOverviewScreen(
 @Composable
 fun PeriodCard(
     periodNumber: Int,
-    yearNumber: Int,
+    yearNumber: Int, // Se mantiene en la firma para uso lógico, pero no se renderiza
     dateRange: String,
     isCurrent: Boolean,
     currentPoints: Int,
+    currentMoney: Double, // PARÁMETRO FINANCIERO RESTAURADO
     goalPoints: Int,
     onClick: () -> Unit
 ) {
@@ -260,13 +265,8 @@ fun PeriodCard(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    Spacer(Modifier.width(8.dp))
-                    // INDICADOR DE SALTO INTERANUAL
-                    Text(
-                        "($yearNumber)",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
+
+                    // CORRECCIÓN: Se eliminó el Text("($yearNumber)") de aquí para limpiar la UI
 
                     if (isCurrent) {
                         Spacer(Modifier.width(8.dp))
@@ -297,6 +297,15 @@ fun PeriodCard(
                             color = if (isCompleted) FuxionGreen else TextSecondary
                         )
                     }
+
+                    // RENDERIZADO FINANCIERO MONOESPACIADO RESTAURADO
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = String.format(Locale("es", "PE"), "Inv: S/ %,.2f", currentMoney),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        color = Color.DarkGray,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 

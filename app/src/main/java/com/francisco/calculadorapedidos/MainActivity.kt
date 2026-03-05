@@ -109,8 +109,8 @@ class MainActivity : ComponentActivity() {
                                 dataStore = dataStore, // <-- INYECCIÓN DE INSTANCIA PRE-EXISTENTE
                                 onBack = { navController.popBackStack() },
                                 onNavigateToOrder = { clientId, targetPoints ->
-                                    val finalTarget = if (targetPoints > 0) targetPoints else 60
-                                    navController.navigate("order_screen/$year/$periodId/$weekId/$clientId/$finalTarget")
+                                    // ELIMINACIÓN DE BARRERA: Se permite el paso estricto del 0 para comodines
+                                    navController.navigate("order_screen/$year/$periodId/$weekId/$clientId/$targetPoints")
                                 }
                             )
                         }

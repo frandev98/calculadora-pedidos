@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,16 +41,13 @@ fun CatalogDialog(
     onProductSelected: (Product) -> Unit,
     excludedIds: List<Int>
 ) {
-    // --- ESTADOS LOCALES ---
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf<String?>(null) }
 
-    // --- LISTA DE CATEGORÍAS ---
     val categories = remember {
         listOf("TODOS") + ProductCatalog.masterList.map { it.category }.distinct().sorted()
     }
 
-    // --- LÓGICA DE FILTRADO ---
     val filteredList = remember(searchQuery, selectedCategory, excludedIds) {
         ProductCatalog.masterList.filter { product ->
             val isNotExcluded = !excludedIds.contains(product.id)
@@ -63,22 +59,19 @@ fun CatalogDialog(
         }
     }
 
-    // --- INTERFAZ UI ---
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
-            usePlatformDefaultWidth = false // Ocupa toda la pantalla
+            usePlatformDefaultWidth = false
         )
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            // Usamos un Box para poder superponer el botón flotante al fondo
             Box(modifier = Modifier.fillMaxSize()) {
                 Column(modifier = Modifier.fillMaxSize()) {
 
-                    // 1. ENCABEZADO
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -98,7 +91,6 @@ fun CatalogDialog(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // 2. BUSCADOR
                     TextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -126,7 +118,6 @@ fun CatalogDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // 3. CHIPS DE CATEGORÍAS
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -160,30 +151,26 @@ fun CatalogDialog(
                         color = Color(0xFFEEEEEE)
                     )
 
-                    // 4. LISTA DE PRODUCTOS
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        // Aumentamos el padding inferior a 80.dp para que el último producto no quede tapado por el botón "Listo"
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 80.dp)
+                        // PARCHE ESTRUCTURAL: Incremento de margen inferior de 80.dp a 140.dp
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 140.dp)
                     ) {
                         items(filteredList) { product ->
                             ProductCatalogRow(product = product, onSelect = {
-                                // 1. Agregamos el producto al carrito principal
                                 onProductSelected(product)
-
-                                // 2. ¡ELIMINADO! Ya no llamamos a onDismiss() aquí para que no se cierre la pantalla.
                             })
                             Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
                 }
 
-                // --- NUEVO: BOTÓN FLOTANTE DE "LISTO" ---
                 ExtendedFloatingActionButton(
-                    onClick = { onDismiss() }, // Este es el que ahora cierra la pantalla
+                    onClick = { onDismiss() },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp),
+                        // PARCHE ESTRUCTURAL: Elevación de eje Y para evasión de Insets (de 24.dp a 56.dp)
+                        .padding(bottom = 56.dp),
                     containerColor = FuxionGreen,
                     contentColor = Color.White,
                     elevation = FloatingActionButtonDefaults.elevation(8.dp)
@@ -203,10 +190,10 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable { onSelect() }, // Toda la tarjeta es clickeable
+            .clickable { onSelect() },
         elevation = CardDefaults.cardElevation(2.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(12.dp) // Bordes redondeados suaves
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
@@ -214,17 +201,14 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. IMAGEN
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFF5F5F5), // Fondo gris suave
+                color = Color(0xFFF5F5F5),
                 modifier = Modifier.size(50.dp)
             ) {
-                // 1. Obtenemos el ID numérico a partir del nombre (String)
                 val imageResId = rememberDrawableId(product.imageRes)
                 Image(
-                    // 2. Usamos el ID. Si es 0 (no encontrado), usa una imagen por defecto o placeholder
-                    painter = if (imageResId != 0) painterResource(id = imageResId) else painterResource(id = R.drawable.ic_launcher_foreground), // Asegúrate de tener un placeholder o usa uno del sistema
+                    painter = if (imageResId != 0) painterResource(id = imageResId) else painterResource(id = R.drawable.ic_launcher_foreground),
                     contentDescription = product.name,
                     modifier = Modifier.padding(all = 4.dp)
                 )
@@ -232,7 +216,6 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // 2. TEXTOS
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = product.name,
@@ -245,7 +228,6 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
-                // Precio y Puntos
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "${product.points} pts",
@@ -262,13 +244,11 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
                 }
             }
 
-            // 3. BOTÓN DE ACCIÓN (+)
-            // Visualmente indica "Agregar"
             IconButton(
                 onClick = onSelect,
                 modifier = Modifier
                     .size(36.dp)
-                    .background(FuxionBlue.copy(alpha = 0.1f), CircleShape) // Círculo azul suave de fondo
+                    .background(FuxionBlue.copy(alpha = 0.1f), CircleShape)
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
@@ -285,7 +265,6 @@ fun ProductCatalogRow(product: Product, onSelect: () -> Unit) {
 fun rememberDrawableId(imageName: String): Int {
     val context = LocalContext.current
     return remember(imageName) {
-        // Busca el ID del recurso en la carpeta 'drawable' usando el nombre
         context.resources.getIdentifier(
             imageName,
             "drawable",

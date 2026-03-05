@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.francisco.calculadorapedidos.data.OrderRepository
@@ -33,21 +34,19 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeriodDetailScreen(
-    year: Int, // Coordenada interanual obligatoria
+    year: Int,
     periodId: Int,
-    dataStore: FuxionDataStore, // INYECCIÓN OBLIGATORIA: Requerido para leer el AnchorDate
+    dataStore: FuxionDataStore,
     onBack: () -> Unit,
-    onNavigateToWeek: (Int) -> Unit, // Homologado
-    onNavigateToFullPlan: () -> Unit // INYECCIÓN OBLIGATORIA: Requerido para el botón de planificar periodo
+    onNavigateToWeek: (Int) -> Unit,
+    onNavigateToFullPlan: () -> Unit
 ) {
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
     val refreshTrigger by remember { mutableStateOf(0) }
     val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
-    // LECTURA REACTIVA: Extracción del periodo de inicio
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
 
-    // BLOQUEO ESTRUCTURAL: Previene ejecución con matriz nula
     if (anchorDate == null || userStartPeriod == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -58,7 +57,6 @@ fun PeriodDetailScreen(
     val currentStatus = remember(anchor) { FuxionCalendarLogic.calculateStatus(anchor) }
     val isCurrentPeriod = currentStatus.period == periodId
 
-    // Parámetro inmutable para compatibilidad de navegación
     val targetGoal = 500
 
     val dateFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
@@ -69,9 +67,7 @@ fun PeriodDetailScreen(
             TopAppBar(
                 title = { Text("Periodo $periodId ($year)") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver")
-                    }
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Volver") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = BackgroundWhite,
@@ -88,7 +84,6 @@ fun PeriodDetailScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            // FECHAS
             Text(
                 text = "${fullDateFormat.format(periodDates.first)} - ${fullDateFormat.format(periodDates.second)}",
                 style = MaterialTheme.typography.titleMedium,
@@ -97,8 +92,6 @@ fun PeriodDetailScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            // TARJETA DE OBJETIVO ESTRATÉGICO (ESTÁTICA PRO 500)
             Text("Objetivo Estratégico", style = MaterialTheme.typography.labelLarge, color = TextSecondary, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -108,78 +101,48 @@ fun PeriodDetailScreen(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
                 border = BorderStroke(1.dp, Color(0xFFE0E0E0))
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = FuxionGreen,
-                        shape = CircleShape,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.padding(10.dp)
-                        )
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(color = FuxionGreen, shape = CircleShape, modifier = Modifier.size(48.dp)) {
+                        Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color.White, modifier = Modifier.padding(10.dp))
                     }
-
                     Spacer(Modifier.width(16.dp))
-
                     Column {
-                        Text(
-                            text = "Nivel PRO 500",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "Matriz de 13 Semanas (500 pts)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
+                        Text(text = "Nivel PRO 500", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text(text = "Matriz de 13 Semanas (500 pts)", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
             Text("Planificación Semanal", style = MaterialTheme.typography.titleLarge, color = TextPrimary)
             Spacer(modifier = Modifier.height(12.dp))
 
-            // LISTA DE SEMANAS
             for (weekIndex in 1..4) {
                 val weekStartDate = FuxionCalendarLogic.addDays(periodDates.first, (weekIndex - 1) * 7)
                 val weekEndDate = FuxionCalendarLogic.addDays(weekStartDate, 6)
                 val isThisWeekActive = isCurrentPeriod && (currentStatus.week == weekIndex)
 
-                // LECTURA DINÁMICA CON DESFASE INYECTADO
                 val weekSlots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod!!)
-
-                // HOMOLOGACIÓN DE REGLA DE NEGOCIO
                 val specificTarget = if (weekSlots.size > 1) 125 else weekSlots.firstOrNull()?.targetPoints ?: 125
 
-                // PROPAGACIÓN DE COORDENADA TEMPORAL (year) AL REPOSITORIO
-                val savedPoints = remember(year, periodId, weekIndex, targetGoal, refreshTrigger) {
-                    orderRepository.getWeekTotalPoints(year, periodId, weekIndex)
+                // LECTURA CONSOLIDADA
+                val metrics = remember(year, periodId, weekIndex, targetGoal, refreshTrigger) {
+                    orderRepository.getWeekMetrics(year, periodId, weekIndex)
                 }
 
-                val hasOrder = savedPoints > 0
-                val isGoalMet = savedPoints >= specificTarget
+                val hasOrder = metrics.points > 0
+                val isGoalMet = metrics.points >= specificTarget
 
                 WeekCard(
                     weekNumber = weekIndex,
                     dateRange = "${dateFormat.format(weekStartDate)} - ${dateFormat.format(weekEndDate)}",
                     target = specificTarget,
-                    savedPoints = savedPoints,
+                    savedPoints = metrics.points,
+                    savedMoney = metrics.money, // INYECCIÓN
                     isCurrent = isThisWeekActive,
                     hasOrder = hasOrder,
                     isGoalMet = isGoalMet,
-                    onClick = {
-                        // HOMOLOGACIÓN DE LAMBDA
-                        onNavigateToWeek(weekIndex)
-                    }
+                    onClick = { onNavigateToWeek(weekIndex) }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -189,23 +152,14 @@ fun PeriodDetailScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedButton(
-                onClick = { onNavigateToFullPlan() }, // HOMOLOGACIÓN DE LAMBDA
+                onClick = { onNavigateToFullPlan() },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, FuxionBlue)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoGraph,
-                    contentDescription = null,
-                    tint = FuxionBlue
-                )
+                Icon(imageVector = Icons.Default.AutoGraph, contentDescription = null, tint = FuxionBlue)
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "Planificar Periodo Completo",
-                    color = FuxionBlue,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelLarge
-                )
+                Text(text = "Planificar Periodo Completo", color = FuxionBlue, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
             }
             Spacer(modifier = Modifier.height(32.dp))
         }
@@ -218,6 +172,7 @@ fun WeekCard(
     dateRange: String,
     target: Int,
     savedPoints: Int,
+    savedMoney: Double, // NUEVA VARIABLE
     isCurrent: Boolean,
     hasOrder: Boolean,
     isGoalMet: Boolean,
@@ -270,34 +225,36 @@ fun WeekCard(
                             Text("ACTUAL", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
-
-                    if (hasOrder) {
-                        Spacer(Modifier.width(8.dp))
-                        Icon(
-                            if (isGoalMet) Icons.Default.CheckCircle else Icons.Default.Info,
-                            null,
-                            tint = if (isGoalMet) FuxionGreen else ProgressOrange,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(text = dateRange, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
             }
 
-            Surface(
-                color = when {
-                    hasOrder && isGoalMet -> FuxionGreen
-                    hasOrder && !isGoalMet -> ProgressOrange
-                    isCurrent -> Color.White
-                    else -> Color(0xFFE0E0E0)
-                },
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                val text = if (hasOrder) "$savedPoints / $target pts" else "Meta: $target pts"
-                val textColor = if (hasOrder) Color.White else if(isCurrent) FuxionBlue else Color.Gray
+            // RENDERIZADO UX/UI: Datos Financieros Nivel 2
+            Column(horizontalAlignment = Alignment.End) {
+                Surface(
+                    color = when {
+                        hasOrder && isGoalMet -> FuxionGreen
+                        hasOrder && !isGoalMet -> ProgressOrange
+                        isCurrent -> Color.White
+                        else -> Color(0xFFE0E0E0)
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    val text = if (hasOrder) "$savedPoints / $target pts" else "Meta: $target pts"
+                    val textColor = if (hasOrder) Color.White else if(isCurrent) FuxionBlue else Color.Gray
+                    Text(text = text, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = textColor)
+                }
 
-                Text(text = text, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = textColor)
+                if (hasOrder && savedMoney > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = String.format(Locale("es", "PE"), "S/ %,.2f", savedMoney),
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        fontWeight = FontWeight.Bold,
+                        color = Color.DarkGray
+                    )
+                }
             }
         }
     }

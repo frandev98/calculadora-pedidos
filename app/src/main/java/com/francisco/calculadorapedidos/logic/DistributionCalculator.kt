@@ -11,7 +11,6 @@ class DistributionCalculator {
         val maxPts: Double
     )
 
-    // FIRMA MUTADA: Se exige userStartPeriod
     fun calculate(
         selectedProducts: List<Pair<Product, Int>>,
         periodId: Int,
@@ -22,23 +21,18 @@ class DistributionCalculator {
 
         val allRequests = mutableListOf<SlotRequest>()
         val weeklyTargets = (1..4).associateWith { weekIndex ->
-            // PROPAGACIÓN APLICADA: Se inyecta userStartPeriod en la lógica matemática
             val slots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod)
             slots.forEach { slot ->
                 val min = slot.targetPoints.toDouble()
-                val max = min + 2.0 // Tolerancia estricta paramétrica de +2
+                val max = min + 2.0
                 allRequests.add(SlotRequest(weekIndex, slot, min, max))
             }
             slots
         }
 
-        // 2. Ordenar las solicitudes de mayor a menor para optimizar la poda recursiva
         val sortedRequests = allRequests.sortedByDescending { it.minPts }
-
-        // 3. Ejecutar algoritmo de partición exacta
         val (assignment, isPerfect) = findBestAssignment(inventory, sortedRequests)
 
-        // 4. Construcción de la entidad de salida
         return buildResult(assignment, inventory, weeklyTargets, isPerfect)
     }
 
@@ -48,36 +42,28 @@ class DistributionCalculator {
     ): Pair<Map<SlotRequest, List<DistributedItem>>, Boolean> {
 
         val totalInventoryPoints = inventory.sumOf { it.points }
-
-        // --- PARÁMETROS DINÁMICOS DEL USUARIO ---
-        // Exceso total = Lo que sobra después de los 500 puntos base (ej. 503 - 500 = 3)
         val excess = maxOf(0.0, totalInventoryPoints - 500.0)
-        // Cuánto se le permite "pasarse" a cada semana (ej. 3 / 4 = 0.75 -> redondeado a 1.0)
         val allowedWeekExtra = Math.ceil(excess / 4.0)
 
         // ==========================================
-        // LA CALCULADORA DE CASTIGOS (JERARQUÍA ESTRICTA)
+        // JERARQUÍA ESTRICTA DE PENALIZACIONES
         // ==========================================
         fun calculatePenalty(state: Map<Product, SlotRequest>): Double {
             var penalty = 0.0
             val slotSums = requests.associateWith { 0.0 }.toMutableMap()
+            for ((product, slot) in state) { slotSums[slot] = slotSums[slot]!! + product.points }
 
-            for ((product, slot) in state) {
-                slotSums[slot] = slotSums[slot]!! + product.points
-            }
-
-            // --- CAPA 1: REGLA DE ORO POR CLIENTE ---
+            // 1. REGLA DE ORO: MÍNIMO POR CLIENTE (GRAVE)
             for (req in requests) {
                 val sum = slotSums[req]!!
-                val target = req.minPts // 60 pts
-
-                if (sum < target) {
-                    // CASTIGO MASIVO: 100,000 por cada punto que falte
-                    penalty += (target - sum) * 100_000.0
+                if (sum < req.minPts) {
+                    penalty += (req.minPts - sum) * 1_000_000.0 // Castigo Máximo Nivel 1
+                } else {
+                    penalty += (sum - req.minPts) * 10.0 // Castigo Micro por desperdiciar puntos
                 }
             }
 
-            // --- REVISIÓN POR SEMANA (CAPAS 1, 2 y 3) ---
+            // 2. REGLA DE ORO: MÍNIMO POR SEMANA (GRAVE)
             val weeks = requests.map { it.weekIndex }.distinct()
             for (week in weeks) {
                 val weekReqs = requests.filter { it.weekIndex == week }
@@ -86,100 +72,125 @@ class DistributionCalculator {
 
                 val weekMinTarget = if (isSingleClient) weekReqs.first().minPts else 125.0
 
-                // CAPA 1: REGLA DE ORO POR SEMANA
                 if (weekSum < weekMinTarget) {
-                    penalty += (weekMinTarget - weekSum) * 100_000.0 // CASTIGO MASIVO
+                    penalty += (weekMinTarget - weekSum) * 1_000_000.0 // Castigo Máximo Nivel 1
                 } else {
-                    // CAPA 2: LÍMITE DE EXCESO SEMANAL
                     val weekMaxTarget = weekMinTarget + allowedWeekExtra
                     if (weekSum > weekMaxTarget) {
-                        // Castigo fuerte, pero 100 veces menor que violar el mínimo vital
-                        penalty += (weekSum - weekMaxTarget) * 1_000.0
+                        penalty += (weekSum - weekMaxTarget) * 10_000.0 // Castigo Moderado por desbordamiento
                     }
                 }
 
-                // CAPA 3: BALANCE ESTÉTICO INTERNO (Solo para semanas con 2 clientes)
+                // 3. BALANCE INTERNO DE LA SEMANA (Leve)
                 if (weekReqs.size == 2) {
                     val diff = Math.abs(slotSums[weekReqs[0]]!! - slotSums[weekReqs[1]]!!)
-                    penalty += diff * 10.0 // Castigo leve para buscar equidad (ej. 65-65 en vez de 60-70)
+                    penalty += diff * 100.0 // Castigo leve para promover equidad (ej. 60/65 en vez de 60/120)
                 }
             }
-
             return penalty
         }
 
         // ==========================================
-        // MOTOR MONTECARLO EVOLUCIONADO
+        // MOTOR MATEMÁTICO (SIMULATED ANNEALING + ROBIN HOOD)
         // ==========================================
+        var currentBestState = inventory.associateWith { requests.random() }.toMutableMap()
+        var currentBestPenalty = calculatePenalty(currentBestState)
 
-        var bestState = inventory.associateWith { requests.random() }.toMutableMap()
-        var bestPenalty = calculatePenalty(bestState)
+        var globalBestState = currentBestState.toMap()
+        var globalBestPenalty = currentBestPenalty
 
-        // Aumentamos a 100,000 iteraciones. En Kotlin toma < 50ms.
-        val MAX_ITERATIONS = 100_000
+        val MAX_ITERATIONS = 150_000
         var noImprovementCounter = 0
 
         for (i in 0 until MAX_ITERATIONS) {
-            if (bestPenalty == 0.0) break
+            if (globalBestPenalty == 0.0) break // Cero absoluto alcanzado
 
-            val newState = bestState.toMutableMap()
+            val newState = currentBestState.toMutableMap()
+            val mutationSelector = Math.random()
 
-            // ========================================================
-            // NUEVA MUTACIÓN DINÁMICA: 50% Mover / 50% Intercambiar
-            // ========================================================
-            if (Math.random() < 0.5) {
-                // TÁCTICA 1: Mover 1 producto (Ideal para ajustes grandes)
+            // VECTORES DE MUTACIÓN DINÁMICA
+            if (mutationSelector < 0.35) {
+                // Táctica 1: Movimiento Aleatorio Absoluto
                 val productToMove = inventory.random()
-                val currentSlot = newState[productToMove]
-                val newSlot = requests.filter { it != currentSlot }.random()
-                newState[productToMove] = newSlot
-            } else {
-                // TÁCTICA 2: Intercambiar 2 productos (El secreto para márgenes estrechos)
+                newState[productToMove] = requests.random()
+            } else if (mutationSelector < 0.70) {
+                // Táctica 2: Intercambio Inteligente (Switch validado)
                 val p1 = inventory.random()
                 val p2 = inventory.random()
-                val slot1 = newState[p1]
-                val slot2 = newState[p2]
+                val s1 = newState[p1]!!
+                val s2 = newState[p2]!!
+                // Se bloquean intercambios estériles
+                if (s1 != s2 && p1.points != p2.points) {
+                    newState[p1] = s2
+                    newState[p2] = s1
+                }
+            } else {
+                // Táctica 3: Heurística Robin Hood (Inyección Dirigida)
+                val currentSums = requests.associateWith { 0.0 }.toMutableMap()
+                for ((p, s) in newState) { currentSums[s] = currentSums[s]!! + p.points }
 
-                // Solo intercambiamos si pertenecen a clientes distintos
-                if (slot1 != slot2) {
-                    newState[p1] = slot2!!
-                    newState[p2] = slot1!!
+                val deficitSlots = requests.filter { currentSums[it]!! < it.minPts }
+                val excessSlots = requests.filter { currentSums[it]!! > it.minPts }
+
+                if (deficitSlots.isNotEmpty() && excessSlots.isNotEmpty()) {
+                    val receiver = deficitSlots.random()
+                    val donor = excessSlots.random()
+                    // Extrae un producto de la ranura con exceso y se lo entrega al deficitario
+                    val productToGive = newState.filter { it.value == donor }.keys.randomOrNull()
+                    if (productToGive != null) {
+                        newState[productToGive] = receiver
+                    }
+                } else if (deficitSlots.isNotEmpty()) {
+                    val p = inventory.random()
+                    newState[p] = deficitSlots.random()
                 }
             }
-            // ========================================================
 
             val newPenalty = calculatePenalty(newState)
 
-            if (newPenalty < bestPenalty) {
-                bestState = newState
-                bestPenalty = newPenalty
-                noImprovementCounter = 0
+            // CRITERIO DE ACEPTACIÓN CON TOLERANCIA A MESETAS
+            if (newPenalty <= currentBestPenalty) {
+                currentBestState = newState
+                currentBestPenalty = newPenalty
+
+                if (newPenalty < globalBestPenalty) {
+                    globalBestState = newState.toMap()
+                    globalBestPenalty = newPenalty
+                    noImprovementCounter = 0
+                } else {
+                    noImprovementCounter++
+                }
             } else {
                 noImprovementCounter++
+                // Tolerancia de recocido simulado (permite empeorar ligeramente al principio para escapar de trampas lógicas)
+                val temp = (MAX_ITERATIONS - i).toDouble() / MAX_ITERATIONS
+                if (Math.random() < temp * 0.02) {
+                    currentBestState = newState
+                    currentBestPenalty = newPenalty
+                }
             }
 
-            if (noImprovementCounter > 3000) {
-                val tempState = inventory.associateWith { requests.random() }.toMutableMap()
-                val tempPenalty = calculatePenalty(tempState)
-
-                if (tempPenalty < bestPenalty + 500_000.0) {
-                    bestState = tempState
-                    bestPenalty = tempPenalty
+            // PERTURBACIÓN PARCIAL (Destrucción del 15% del estado en vez del 100% para no perder progreso)
+            if (noImprovementCounter > 4000) {
+                val itemsToScramble = (inventory.size * 0.15).toInt().coerceAtLeast(1)
+                for (j in 0 until itemsToScramble) {
+                    currentBestState[inventory.random()] = requests.random()
                 }
+                currentBestPenalty = calculatePenalty(currentBestState)
                 noImprovementCounter = 0
             }
         }
 
         // ==========================================
-        // RESULTADO Y FORMATEO
+        // CONSTRUCCIÓN DE MATRIZ DE SALIDA
         // ==========================================
         val finalAssignments = requests.associateWith { mutableListOf<Product>() }
-        for ((product, slot) in bestState) {
+        for ((product, slot) in globalBestState) {
             finalAssignments[slot]!!.add(product)
         }
 
-        // El plan es válido si no violó las reglas de ORO (castigo < 100,000)
-        val isPerfect = bestPenalty < 100_000.0
+        // Validación de Infracciones: Si el castigo supera 1,000,000 significa que se rompió una Regla de Oro
+        val isPerfect = globalBestPenalty < 1_000_000.0
 
         val formatted = finalAssignments.mapValues {
             val tag = if (isPerfect) "[${it.key.def.slotId}] " else "[${it.key.def.slotId}] (Error) "
@@ -187,60 +198,6 @@ class DistributionCalculator {
         }
 
         return Pair(formatted, isPerfect)
-    }
-
-    private fun greedyAssignment(
-        inventory: List<Product>,
-        requests: List<SlotRequest>
-    ): Map<SlotRequest, List<DistributedItem>> {
-        // 1. Ordenar de mayor a menor puntaje
-        val sortedInventory = inventory.sortedByDescending { it.points }
-
-        val assignments = requests.associateWith { mutableListOf<Product>() }.toMutableMap()
-        val currentSums = requests.associateWith { 0.0 }.toMutableMap()
-
-        // Funciones auxiliares para calcular déficits
-        fun getWeekSum(weekIndex: Int) = requests.filter { it.weekIndex == weekIndex }.sumOf { currentSums[it]!! }
-
-        fun getWeekDeficit(weekIndex: Int): Double {
-            val weekReqs = requests.filter { it.weekIndex == weekIndex }
-            val weekTarget = if (weekReqs.size == 1) weekReqs.first().minPts else 125.0
-            return maxOf(0.0, weekTarget - getWeekSum(weekIndex))
-        }
-
-        fun getSlotDeficit(req: SlotRequest) = maxOf(0.0, req.minPts - currentSums[req]!!)
-
-        // 2. Llenado inteligente
-        for (product in sortedInventory) {
-            // PRIORIDAD 1: Clientes (Slots) que aún no llegan a su meta mínima (60 pts)
-            val slotsNeedingIndividual = requests.filter { getSlotDeficit(it) > 0 }
-
-            val chosenSlot = if (slotsNeedingIndividual.isNotEmpty()) {
-                // Le damos el producto al cliente que esté más lejos de sus 60 puntos
-                slotsNeedingIndividual.maxByOrNull { getSlotDeficit(it) }!!
-            } else {
-                // PRIORIDAD 2: Todos tienen 60, pero la SEMANA aún no llega a 125 pts
-                val weeksNeedingTotal = (1..4).filter { getWeekDeficit(it) > 0 }
-
-                if (weeksNeedingTotal.isNotEmpty()) {
-                    // Elegimos la semana que esté más lejos de 125 pts
-                    val worstWeek = weeksNeedingTotal.maxByOrNull { getWeekDeficit(it) }!!
-                    // Dentro de esa semana, le damos el producto al cliente que tenga MENOS puntos para mantener todo parejo
-                    requests.filter { it.weekIndex == worstWeek }.minByOrNull { currentSums[it]!! }!!
-                } else {
-                    // PRIORIDAD 3: Todas las metas cumplidas.
-                    // Repartimos lo que sobra al cliente con menos puntos globales para mantener el equilibrio.
-                    requests.minByOrNull { currentSums[it]!! }!!
-                }
-            }
-
-            assignments[chosenSlot]!!.add(product)
-            currentSums[chosenSlot] = currentSums[chosenSlot]!! + product.points
-        }
-
-        return assignments.mapValues {
-            groupItems(it.value, "[${it.key.def.slotId}] (Aprox) ")
-        }
     }
 
     private fun buildResult(
@@ -255,7 +212,6 @@ class DistributionCalculator {
                 val req = assignment.keys.find { it.weekIndex == weekIndex && it.def.slotId == def.slotId }
                 val items = if (req != null) assignment[req] ?: emptyList() else emptyList()
 
-                // CORRECCIÓN APLICADA: Se inyecta def.fixedIndex para permitir persistencia
                 SlotAllocation(def.slotId, def.fallbackName, def.fixedIndex, def.targetPoints, items)
             }
         }

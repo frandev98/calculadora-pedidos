@@ -5,13 +5,11 @@ import java.util.Date
 import java.util.concurrent.TimeUnit
 
 // Definición estructural de la ranura de cliente
-// NUEVA ESTRUCTURA DE LA RANURA
 data class WeeklySlotDef(val slotId: String, val fixedIndex: Int, val fallbackName: String, val targetPoints: Int)
+
 object FuxionCalendarLogic {
-// --- NUEVO: MOTOR DE MATRIZ PRO 500 (CICLO 13 SEMANAS) ---
 
     fun getAbsoluteWeek(periodId: Int, weekIndex: Int): Int {
-        // Asumiendo periodos de 4 semanas continuas
         return ((periodId - 1) * 4) + weekIndex
     }
 
@@ -20,73 +18,67 @@ object FuxionCalendarLogic {
         return if (cycle == 0) 13 else cycle
     }
 
-    // REEMPLAZO DE LA FUNCIÓN DE MATRIZ
-    // FIRMA MUTADA: Se inyecta 'userStartPeriod' como dependencia obligatoria
+    // ALGORITMO CORREGIDO: Bucle iterativo 3x4 + Nodo aislado
     fun getSlotsForWeek(periodId: Int, weekId: Int, userStartPeriod: Int): List<WeeklySlotDef> {
 
+        // Desfase modular para sincronizar con la fecha de afiliación del usuario
         val deltaPeriods = (periodId - userStartPeriod + 13) % 13
         val relativeAbsWeek = (deltaPeriods * 4) + weekId
         val cycleWeek = ((relativeAbsWeek - 1) % 13) + 1
 
         return when (cycleWeek) {
+            // BLOQUE 1
             1 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
             2 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C4", 4, "Cliente 4", 60))
             3 -> listOf(WeeklySlotDef("C5", 5, "Cliente 5", 60), WeeklySlotDef("C6", 6, "Cliente 6", 60))
-            4 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C7", 7, "Cliente 7", 60))
-            5 -> listOf(WeeklySlotDef("C2", 2, "Cliente 2", 60), WeeklySlotDef("C8", 8, "Cliente 8", 60))
-            6 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C9", 9, "Cliente 9", 60))
-            7 -> listOf(WeeklySlotDef("C4", 4, "Cliente 4", 60), WeeklySlotDef("C5", 5, "Cliente 5", 60))
-            8 -> listOf(WeeklySlotDef("C6", 6, "Cliente 6", 60), WeeklySlotDef("C7", 7, "Cliente 7", 60))
-            9 -> listOf(WeeklySlotDef("C8", 8, "Cliente 8", 60), WeeklySlotDef("C1", 1, "Cliente 1", 60))
-            10 -> listOf(WeeklySlotDef("C9", 9, "Cliente 9", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
-            11 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 125))
-            12 -> listOf(WeeklySlotDef("C4", 4, "Cliente 4", 125))
+            4 -> listOf(WeeklySlotDef("C7", 7, "Cliente 7", 60), WeeklySlotDef("C8", 8, "Cliente 8", 60))
+
+            // BLOQUE 2
+            5 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
+            6 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C4", 4, "Cliente 4", 60))
+            7 -> listOf(WeeklySlotDef("C5", 5, "Cliente 5", 60), WeeklySlotDef("C6", 6, "Cliente 6", 60))
+            8 -> listOf(WeeklySlotDef("C7", 7, "Cliente 7", 60), WeeklySlotDef("C8", 8, "Cliente 8", 60))
+
+            // BLOQUE 3
+            9 -> listOf(WeeklySlotDef("C1", 1, "Cliente 1", 60), WeeklySlotDef("C2", 2, "Cliente 2", 60))
+            10 -> listOf(WeeklySlotDef("C3", 3, "Cliente 3", 60), WeeklySlotDef("C4", 4, "Cliente 4", 60))
+            11 -> listOf(WeeklySlotDef("C5", 5, "Cliente 5", 60), WeeklySlotDef("C6", 6, "Cliente 6", 60))
+            12 -> listOf(WeeklySlotDef("C7", 7, "Cliente 7", 60), WeeklySlotDef("C8", 8, "Cliente 8", 60))
+
+            // NODO AISLADO (CIERRE DE CICLO PRO 500)
             13 -> listOf(WeeklySlotDef("C9", 9, "Cliente 9", 125))
+
             else -> emptyList()
         }
     }
+
     data class FuxionStatus(
-        val period: Int,        // 1..13
-        val week: Int,          // 1..4
-        val currentDayOfPeriod: Int, // 1..28
-        val daysRemainingInWeek: Int, // 0..6 (0 = hoy es cierre)
+        val period: Int,
+        val week: Int,
+        val currentDayOfPeriod: Int,
+        val daysRemainingInWeek: Int,
         val periodStartDate: Date,
         val weekStartDate: Date,
-        val weekEndDate: Date // Fecha de cierre (usualmente Martes prefijado)
+        val weekEndDate: Date
     )
 
-    /**
-     * Calcula el estado actual dado el inicio del Periodo 1.
-     * @param anchorDate Inicio del Periodo 1 del año en curso.
-     * @param currentDate Fecha actual (por defecto 'ahora').
-     */
     fun calculateStatus(anchorDate: Date, currentDate: Date = Date()): FuxionStatus {
-        // Normalizamos fechas a medianoche para evitar problemas de horas
         val startCa = Calendar.getInstance().apply { time = anchorDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
         val currentCa = Calendar.getInstance().apply { time = currentDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
 
         val diffMillis = currentCa.timeInMillis - startCa.timeInMillis
         val diffDays = TimeUnit.MILLISECONDS.toDays(diffMillis).toInt()
 
-        // Si la fecha actual es anterior al ancla, asumimos dia 1 del P1 (o error, pero mejor fallback)
         if (diffDays < 0) return FuxionStatus(1, 1, 1, 6, anchorDate, anchorDate, addDays(anchorDate, 6))
 
-        // Cálculos matemáticos puros
-        // Periodo (0-indexed internamente)
         val totalWeeksPassed = diffDays / 7
         val periodIndex = totalWeeksPassed / 4
         val currentPeriod = periodIndex + 1
-
-        // Semana dentro del periodo (0-3)
         val weekIndex = totalWeeksPassed % 4
         val currentWeek = weekIndex + 1
-
-        // Días dentro del periodo y semana
         val currentDayOfPeriod = (diffDays % 28) + 1
-        val dayOfWeekIndex = diffDays % 7 // 0..6 (0 = primer dia de la semana)
+        val dayOfWeekIndex = diffDays % 7
         val daysRemainingInWeek = 6 - dayOfWeekIndex
-
-        // Fechas de inicio/fin
         val currentPeriodStartDate = addDays(anchorDate, periodIndex * 28)
         val currentWeekStartDate = addDays(anchorDate, totalWeeksPassed * 7)
         val currentWeekEndDate = addDays(currentWeekStartDate, 6)
@@ -101,18 +93,17 @@ object FuxionCalendarLogic {
             weekEndDate = currentWeekEndDate
         )
     }
-    
-    // Helper para obtener la lista de los 13 periodos del año (Para la UI "Year Overview")
+
     fun getFullYearPlan(anchorDate: Date): List<PeriodInfo> {
         val list = mutableListOf<PeriodInfo>()
         var pointer = Calendar.getInstance().apply { time = anchorDate; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
-        
+
         for (p in 1..13) {
             val start = pointer.time
-            pointer.add(Calendar.DAY_OF_YEAR, 27) // Fin es start + 27 dias
+            pointer.add(Calendar.DAY_OF_YEAR, 27)
             val end = pointer.time
-            pointer.add(Calendar.DAY_OF_YEAR, 1) // Avanzamos al siguiente periodo
-            
+            pointer.add(Calendar.DAY_OF_YEAR, 1)
+
             list.add(PeriodInfo(p, start, end))
         }
         return list
@@ -128,14 +119,9 @@ object FuxionCalendarLogic {
     }
 
     fun getPeriodDates(anchor: Date, periodNumber: Int): Pair<Date, Date> {
-        // Cada periodo dura 28 días (4 semanas)
-        // El periodo 1 empieza en el día 0.
-        // El periodo N empieza en (N-1) * 28 días después del ancla.
         val daysToStart = (periodNumber - 1) * 28
-
         val start = addDays(anchor, daysToStart)
-        val end = addDays(start, 27) // Termina 27 días después del inicio (total 28 días)
-
+        val end = addDays(start, 27)
         return Pair(start, end)
     }
 }

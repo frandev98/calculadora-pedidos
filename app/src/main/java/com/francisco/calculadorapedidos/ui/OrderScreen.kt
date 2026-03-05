@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +40,7 @@ import com.francisco.calculadorapedidos.ui.theme.ProgressOrange
 import com.francisco.calculadorapedidos.ui.theme.SurfaceWhite
 import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,20 +57,15 @@ fun OrderScreen(
     val context = LocalContext.current
     val orderRepository = remember { OrderRepository(context) }
 
-    // INSTANCIACIÓN LOCAL: Se extrae el DataStore desde el contexto para no alterar el NavHost
     val dataStore = remember { com.francisco.calculadorapedidos.data.FuxionDataStore(context) }
-
-    // LECTURA REACTIVA: Extracción asíncrona de la variable de desfase
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
 
-    // BLOQUEO DE ESTADO: Evita el despliegue de la UI si la base de datos no ha respondido
     if (userStartPeriod == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
 
     LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId, userStartPeriod) {
-        // INYECCIÓN DE FIRMA ESTABILIZADA
         viewModel.setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod!!)
 
         if (isWeeklyMode && periodId != 0 && weekId != 0) {
@@ -130,7 +127,7 @@ fun OrderScreen(
 fun OrderInputView(
     viewModel: OrderViewModel,
     onBack: () -> Unit,
-    year: Int, // <--- DEPENDENCIA RECIBIDA
+    year: Int,
     periodId: Int,
     weekId: Int,
     clientId: String,
@@ -143,12 +140,13 @@ fun OrderInputView(
 
     val title = if (viewModel.isWeeklyMode) "Calculadora Semanal" else "Planificador de Periodo"
 
+    // CÁLCULO DE MÉTRICAS EN TIEMPO REAL (O(N))
     val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
+    val totalMoney = viewModel.selectedProducts.sumOf { it.first.price * it.second } // Inyección Financiera Total
     val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
 
     val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
 
-    // AUTO-GUARDADO REACTIVO DEL BORRADOR 4D
     LaunchedEffect(viewModel.selectedProducts.toList()) {
         if (!viewModel.isWeeklyMode && periodId != 0) {
             orderRepository.savePeriodDraft(year, periodId, viewModel.selectedProducts.toList())
@@ -189,13 +187,11 @@ fun OrderInputView(
                                 if (viewModel.isWeeklyMode) {
                                     if (viewModel.selectedProducts.isEmpty()) {
                                         if (periodId != 0 && weekId != 0) {
-                                            // ELIMINACIÓN 4D
                                             orderRepository.clearOrder(year, periodId, weekId, clientId)
                                         }
                                         onBack()
                                     } else {
                                         if (periodId != 0 && weekId != 0) {
-                                            // ESCRITURA 4D
                                             orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
                                         }
 
@@ -264,6 +260,7 @@ fun OrderInputView(
         ) {
             GamifiedProgressHeader(
                 currentPoints = totalPoints,
+                currentMoney = totalMoney, // PROPAGACIÓN DE VARIABLE MONETARIA
                 targetGoal = viewModel.targetGoal,
                 isWeekly = viewModel.isWeeklyMode
             )
@@ -332,7 +329,6 @@ fun OrderInputView(
                     onClick = {
                         viewModel.clearCart()
                         if (!viewModel.isWeeklyMode && periodId != 0) {
-                            // PURGA 4D MANUAL
                             orderRepository.clearPeriodDraft(year, periodId)
                         }
                         showDeleteDialog = false
@@ -602,12 +598,28 @@ fun SelectedProductItem(product: Product, quantity: Int, onInc: () -> Unit, onDe
                     color = Color(0xFF757575)
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${product.points} pts",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF2E7D32),
-                    fontWeight = FontWeight.Bold
-                )
+
+                // RENDERIZADO UX/UI: Subtotales Dinámicos (Puntos y Dinero)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+
+                    // Cálculo de puntos totales por fila (Dinámico)
+                    val rowPoints = product.points * quantity
+                    val formattedPoints = if (rowPoints % 1.0 == 0.0) rowPoints.toInt().toString() else rowPoints.toString()
+
+                    Text(
+                        text = "$formattedPoints pts",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = String.format(Locale("es", "PE"), "S/ %,.2f", product.price * quantity),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                        color = Color.DarkGray,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -666,13 +678,20 @@ data class ProgressState(
 @Composable
 fun GamifiedProgressHeader(
     currentPoints: Double,
+    currentMoney: Double,
     targetGoal: Int,
     isWeekly: Boolean
 ) {
     val goal = targetGoal.toDouble()
 
+    // IDENTIFICADOR DE ESTADO: Detecta si la pantalla es un nodo de Venta Libre
+    val isWildcard = isWeekly && targetGoal == 0
+
     val state = if (isWeekly) {
-        if (currentPoints < goal) {
+        if (isWildcard) {
+            // MODO COMODÍN: Progreso infinito y refuerzo positivo azul
+            ProgressState(0.0, 1.0, "Venta Libre (Sin Límite) 🌟", FuxionBlue)
+        } else if (currentPoints < goal) {
             val p = (currentPoints / goal).coerceIn(0.0, 1.0)
             val left = goal - currentPoints
             ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
@@ -680,18 +699,12 @@ fun GamifiedProgressHeader(
             ProgressState(goal, 1.0, "¡Meta Semanal Cumplida! 🎉", FuxionGreen)
         }
     } else {
-        val goal1 = 540.0
-        val goal2 = targetGoal.toDouble()
-        if (currentPoints < goal1) {
-            val p = (currentPoints / goal1).coerceIn(0.0, 1.0)
-            val left = goal1 - currentPoints
-            ProgressState(goal1, p, "Faltan ${String.format("%.1f", left)} pts para tu meta", ProgressOrange)
-        } else if (currentPoints < goal2) {
-            val p = ((currentPoints - goal1) / (goal2 - goal1)).coerceIn(0.0, 1.0)
-            val left = goal2 - currentPoints
-            ProgressState(goal2, p, "¡Bien! A ${String.format("%.1f", left)} pts del Nivel PRO", FuxionBlue)
+        if (currentPoints < goal) {
+            val p = (currentPoints / goal).coerceIn(0.0, 1.0)
+            val left = goal - currentPoints
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para el PRO $targetGoal", ProgressOrange)
         } else {
-            ProgressState(goal2, 1.0, "¡IMPARABLE! Meta Máxima Alcanzada 🚀", FuxionGreen)
+            ProgressState(goal, 1.0, "¡IMPARABLE! Nivel PRO $targetGoal Alcanzado 🚀", FuxionGreen)
         }
     }
 
@@ -705,22 +718,36 @@ fun GamifiedProgressHeader(
             modifier = Modifier.padding(20.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // MUTACIÓN DE TÍTULO SEGÚN ESTADO
             Text(
-                text = "TU PROGRESO",
+                text = if (isWildcard) "VENTA COMODÍN" else "TU PROGRESO",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 text = "$currentPoints pts",
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.ExtraBold,
                 color = TextPrimary
             )
+
+            if (currentMoney > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = String.format(java.util.Locale("es", "PE"), "S/ %,.2f", currentMoney),
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = Color.DarkGray,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
+            // BARRA DE PROGRESO (Siempre llena y azul en Modo Comodín)
             LinearProgressIndicator(
                 progress = state.progress.toFloat(),
                 modifier = Modifier
@@ -733,7 +760,7 @@ fun GamifiedProgressHeader(
             Spacer(modifier = Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if (state.progress >= 1.0) Icons.Default.Star else Icons.Default.Info,
+                    imageVector = if (state.progress >= 1.0 && !isWildcard) Icons.Default.Star else Icons.Default.Info,
                     contentDescription = null,
                     tint = state.color,
                     modifier = Modifier.size(20.dp)

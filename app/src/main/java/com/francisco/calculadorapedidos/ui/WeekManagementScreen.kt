@@ -15,14 +15,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.francisco.calculadorapedidos.data.Client
+import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.*
 import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.ui.ClientViewModel
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,7 +33,7 @@ fun WeekManagementScreen(
     year: Int,
     periodId: Int,
     weekId: Int,
-    dataStore: FuxionDataStore, // <-- NUEVA DEPENDENCIA ESTRUCTURAL
+    dataStore: FuxionDataStore,
     onBack: () -> Unit,
     onNavigateToOrder: (String, Int) -> Unit,
     clientViewModel: ClientViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -46,7 +49,6 @@ fun WeekManagementScreen(
         return
     }
 
-    // PROPAGACIÓN DE DESFASE A LA MEMORIA DE COMPOSEC
     val slots = remember(periodId, weekId, userStartPeriod) {
         FuxionCalendarLogic.getSlotsForWeek(periodId, weekId, userStartPeriod!!)
     }
@@ -57,36 +59,40 @@ fun WeekManagementScreen(
         if (slots.size > 1) 125 else slots.firstOrNull()?.targetPoints ?: 125
     }
 
-    var clientProgress by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    // MUTACIÓN DE ESTADO: Mapeo de Entidad Completa (Puntos + Dinero)
+    var clientProgress by remember { mutableStateOf<Map<String, OrderMetrics>>(emptyMap()) }
     var currentWeekPoints by remember { mutableIntStateOf(0) }
+    var currentWeekMoney by remember { mutableDoubleStateOf(0.0) } // Acumulador total financiero
 
     var activeWildcards by remember { mutableStateOf<List<Client>>(emptyList()) }
     var showWildcardDialog by remember { mutableStateOf(false) }
 
-    // INYECCIÓN DE LLAVE 'year' PARA RECOMPOSICIÓN REACTIVA
     LaunchedEffect(year, periodId, weekId, showWildcardDialog, allClients) {
-        val progressMap = mutableMapOf<String, Int>()
-        var total = 0
+        val progressMap = mutableMapOf<String, OrderMetrics>()
+        var totalPts = 0
+        var totalMoney = 0.0
         val wildcardsInThisWeek = mutableListOf<Client>()
 
         allClients.forEach { client ->
-            // RESOLUCIÓN DE RUPTURA: Propagación de parámetro interanual
             val order = orderRepository.getOrder(year, periodId, weekId, client.id)
             val pts = order.sumOf { it.first.points * it.second }.toInt()
+            val money = order.sumOf { it.first.price * it.second }.toDouble()
 
             if (pts > 0) {
-                progressMap[client.id] = pts
-                total += pts
+                progressMap[client.id] = OrderMetrics(pts, money)
+                totalPts += pts
+                totalMoney += money
                 if (client.type == com.francisco.calculadorapedidos.data.ClientType.WILDCARD) {
                     wildcardsInThisWeek.add(client)
                 }
             } else if (client.type == com.francisco.calculadorapedidos.data.ClientType.FIXED) {
-                progressMap[client.id] = 0
+                progressMap[client.id] = OrderMetrics(0, 0.0)
             }
         }
 
         clientProgress = progressMap
-        currentWeekPoints = total
+        currentWeekPoints = totalPts
+        currentWeekMoney = totalMoney
         activeWildcards = wildcardsInThisWeek
     }
 
@@ -123,6 +129,12 @@ fun WeekManagementScreen(
                     Text("OBJETIVO SEMANAL (PRO 500)", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(8.dp))
                     Text("$currentWeekPoints / $totalWeekTarget pts", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+
+                    if (currentWeekMoney > 0) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(String.format(Locale("es", "PE"), "Inversión Total: S/ %,.2f", currentWeekMoney), color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                    }
+
                     Spacer(Modifier.height(8.dp))
                     val progress = (currentWeekPoints.toFloat() / totalWeekTarget.toFloat()).coerceIn(0f, 1f)
                     LinearProgressIndicator(
@@ -144,8 +156,8 @@ fun WeekManagementScreen(
 
                     if (clientEntity == null) return@items
 
-                    val currentPts = clientProgress[clientEntity.id] ?: 0
-                    val isCompleted = currentPts >= slot.targetPoints
+                    val metrics = clientProgress[clientEntity.id] ?: OrderMetrics(0, 0.0)
+                    val isCompleted = metrics.points >= slot.targetPoints
 
                     val cardContainer = if (isCompleted) Color(0xFFE8F5E9) else Color.White
                     val cardBorder = if (isCompleted) FuxionGreen else Color(0xFFE0E0E0)
@@ -154,9 +166,7 @@ fun WeekManagementScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 6.dp)
-                            .clickable {
-                                onNavigateToOrder(clientEntity.id, slot.targetPoints)
-                            },
+                            .clickable { onNavigateToOrder(clientEntity.id, slot.targetPoints) },
                         colors = CardDefaults.cardColors(containerColor = cardContainer),
                         elevation = CardDefaults.cardElevation(2.dp),
                         border = BorderStroke(1.dp, cardBorder)
@@ -179,23 +189,26 @@ fun WeekManagementScreen(
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = clientEntity.name,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
+                                Text(text = clientEntity.name, fontWeight = FontWeight.Bold, color = TextPrimary)
                                 Text("Meta: ${slot.targetPoints} pts", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
 
+                            // RENDERIZADO UX/UI: Datos Financieros Nivel 3
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text(
-                                        "$currentPts pts",
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCompleted) FuxionGreen else FuxionBlue
-                                    )
-                                    if (isCompleted) {
-                                        Icon(Icons.Default.CheckCircle, null, tint = FuxionGreen, modifier = Modifier.size(16.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("${metrics.points} pts", fontWeight = FontWeight.Bold, color = if (isCompleted) FuxionGreen else FuxionBlue)
+                                        if (isCompleted) {
+                                            Spacer(Modifier.width(4.dp))
+                                            Icon(Icons.Default.CheckCircle, null, tint = FuxionGreen, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                    if (metrics.money > 0) {
+                                        Text(
+                                            text = String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                            color = Color.DarkGray
+                                        )
                                     }
                                 }
 
@@ -220,15 +233,13 @@ fun WeekManagementScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Comodines (Ventas Extra)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        TextButton(onClick = { showWildcardDialog = true }) {
-                            Text("+ AGREGAR")
-                        }
+                        TextButton(onClick = { showWildcardDialog = true }) { Text("+ AGREGAR") }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 items(activeWildcards) { wildcard ->
-                    val currentPts = clientProgress[wildcard.id] ?: 0
+                    val metrics = clientProgress[wildcard.id] ?: OrderMetrics(0, 0.0)
 
                     Card(
                         modifier = Modifier
@@ -255,11 +266,18 @@ fun WeekManagementScreen(
                                 Text(text = wildcard.name, fontWeight = FontWeight.Bold, color = TextPrimary)
                                 Text("Sin límite de meta", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                             }
-                            Text(
-                                "$currentPts pts",
-                                fontWeight = FontWeight.Bold,
-                                color = FuxionBlue
-                            )
+
+                            // RENDERIZADO UX/UI: Datos Financieros Comodín
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("${metrics.points} pts", fontWeight = FontWeight.Bold, color = FuxionBlue)
+                                if (metrics.money > 0) {
+                                    Text(
+                                        text = String.format(Locale("es", "PE"), "S/ %,.2f", metrics.money),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = Color.DarkGray
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -282,13 +300,22 @@ fun WeekManagementScreen(
                         pass = pass
                     )
                 } else {
+                    // INYECCIÓN UX: Generación de UUID en Capa UI para Ruteo Síncrono
+                    val isNewWildcard = clientToEdit == null
+                    val targetId = clientToEdit?.id ?: java.util.UUID.randomUUID().toString()
+
                     clientViewModel.saveWildcardClient(
                         name = name,
                         code = code,
                         email = email,
                         pass = pass,
-                        existingId = clientToEdit?.id
+                        existingId = targetId
                     )
+
+                    // DISPARADOR AUTOMÁTICO DE NAVEGACIÓN
+                    if (isNewWildcard) {
+                        onNavigateToOrder(targetId, 0)
+                    }
                 }
                 showEditDialog = false
             }
@@ -305,14 +332,7 @@ fun WeekManagementScreen(
                 LazyColumn {
                     item {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showWildcardDialog = false
-                                    clientToEdit = null
-                                    showEditDialog = true
-                                }
-                                .padding(16.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { showWildcardDialog = false; clientToEdit = null; showEditDialog = true }.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, tint = FuxionBlue)
@@ -323,24 +343,12 @@ fun WeekManagementScreen(
                     }
 
                     if (availableWildcards.isEmpty()) {
-                        item {
-                            Text(
-                                "No hay comodines previos disponibles.",
-                                color = Color.Gray,
-                                modifier = Modifier.padding(16.dp)
-                            )
-                        }
+                        item { Text("No hay comodines previos disponibles.", color = Color.Gray, modifier = Modifier.padding(16.dp)) }
                     } else {
                         items(availableWildcards) { wc ->
                             Text(
                                 text = wc.name,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showWildcardDialog = false
-                                        onNavigateToOrder(wc.id, 0)
-                                    }
-                                    .padding(16.dp),
+                                modifier = Modifier.fillMaxWidth().clickable { showWildcardDialog = false; onNavigateToOrder(wc.id, 0) }.padding(16.dp),
                                 fontWeight = FontWeight.Bold
                             )
                             HorizontalDivider()
