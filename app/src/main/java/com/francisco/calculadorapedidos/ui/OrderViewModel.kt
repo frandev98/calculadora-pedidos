@@ -10,16 +10,27 @@ import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.ClientRepository
 import com.francisco.calculadorapedidos.data.ClientType
 import com.francisco.calculadorapedidos.data.DistributionResult
+import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.data.Product
 import com.francisco.calculadorapedidos.logic.DistributionCalculator
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import javax.inject.Inject
 
-class OrderViewModel : ViewModel() {
+@HiltViewModel
+class OrderViewModel @Inject constructor(
+    private val orderRepository: OrderRepository,
+    private val clientRepository: ClientRepository,
+    private val dataStore: FuxionDataStore
+) : ViewModel() {
 
     private val _selectedProducts = mutableStateListOf<Pair<Product, Int>>()
     val selectedProducts: List<Pair<Product, Int>> get() = _selectedProducts
@@ -43,6 +54,23 @@ class OrderViewModel : ViewModel() {
         private set
 
     private val distributionCalculator = DistributionCalculator()
+
+    // ESTADO DE HIDRATACIÓN DEL SISTEMA
+    private val _isSystemReady = MutableStateFlow(false)
+    val isSystemReady: StateFlow<Boolean> = _isSystemReady.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            dataStore.userStartPeriodFlow.collect { period ->
+                if (period != null) {
+                    userStartPeriod = period
+                    _isSystemReady.value = true
+                }
+            }
+        }
+    }
+
+    // --- ENRUTAMIENTO Y LÓGICA DE NEGOCIO ---
 
     fun setupMode(goal: Int, isWeekly: Boolean, periodId: Int, startPeriod: Int) {
         targetGoal = goal
@@ -100,7 +128,6 @@ class OrderViewModel : ViewModel() {
 
     private fun calculateDistribution() {
         isLoading = true
-
         viewModelScope.launch(Dispatchers.Default) {
             delay(1000)
             val result = distributionCalculator.calculate(_selectedProducts, currentPeriodId, userStartPeriod)
@@ -116,15 +143,55 @@ class OrderViewModel : ViewModel() {
         _selectedProducts.addAll(products)
     }
 
-    // RESOLUCIÓN DE RUPTURA: Inyección de Corrutina para I/O Relacional
-    fun saveFullDistribution(year: Int, result: DistributionResult, orderRepository: OrderRepository, clientRepository: ClientRepository) {
-        viewModelScope.launch {
-            val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
+    // --- ENCAPSULACIÓN DE OPERACIONES I/O (ACID) ---
 
+    fun initializeOrder(year: Int, targetGoal: Int, isWeeklyMode: Boolean, periodId: Int, weekId: Int, clientId: String) {
+        setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod)
+        viewModelScope.launch(Dispatchers.IO) {
+            if (isWeeklyMode && periodId != 0 && weekId != 0) {
+                val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
+                if (savedProducts.isNotEmpty()) {
+                    withContext(Dispatchers.Main) { loadProducts(savedProducts) }
+                }
+            } else if (!isWeeklyMode && periodId != 0) {
+                val draftProducts = orderRepository.getPeriodDraft(year, periodId)
+                if (draftProducts.isNotEmpty()) {
+                    withContext(Dispatchers.Main) { loadProducts(draftProducts) }
+                }
+            }
+        }
+    }
+
+    fun saveDraft(year: Int, periodId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            orderRepository.savePeriodDraft(year, periodId, _selectedProducts.toList())
+        }
+    }
+
+    fun clearDraft(year: Int, periodId: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            orderRepository.clearPeriodDraft(year, periodId)
+        }
+    }
+
+    fun commitWeeklyOrder(year: Int, periodId: Int, weekId: Int, clientId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            orderRepository.saveOrder(year, periodId, weekId, clientId, _selectedProducts.toList())
+        }
+    }
+
+    fun clearWeeklyOrder(year: Int, periodId: Int, weekId: Int, clientId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            orderRepository.clearOrder(year, periodId, weekId, clientId)
+        }
+    }
+
+    fun saveFullDistribution(year: Int, result: DistributionResult) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
             for (week in weeks) {
                 for (slot in week.slots) {
                     var clientEntity = clientRepository.getFixedClient(slot.fixedIndex)
-
                     if (clientEntity == null) {
                         val newClient = Client(
                             id = UUID.randomUUID().toString(),
@@ -135,11 +202,8 @@ class OrderViewModel : ViewModel() {
                         clientRepository.saveClient(newClient)
                         clientEntity = newClient
                     }
-
                     val realClientId = clientEntity.id
                     val productsToSave = slot.items.map { Pair(it.product, it.quantity) }
-
-                    // Delegación segura: el repositorio ya maneja su propio Dispatchers.IO internamente
                     orderRepository.saveOrder(year, currentPeriodId, week.weekIndex, realClientId, productsToSave)
                 }
             }

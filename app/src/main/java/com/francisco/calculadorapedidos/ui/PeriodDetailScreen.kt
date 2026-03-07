@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-// INYECCIÓN DE DEPENDENCIA DE HILT
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
@@ -40,24 +39,31 @@ fun PeriodDetailScreen(
     onBack: () -> Unit,
     onNavigateToWeek: (Int) -> Unit,
     onNavigateToFullPlan: () -> Unit,
-    // DELEGACIÓN DEL CICLO DE VIDA A LA FACTORÍA DE HILT
     viewModel: PeriodViewModel = hiltViewModel()
 ) {
-    val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = null)
+    // 1. PURGA DE ANCHOR DATE: Solo necesitamos el periodo de inicio del usuario
     val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
     val uiState by viewModel.uiState.collectAsState()
 
-    if (anchorDate == null || userStartPeriod == null) {
+    if (userStartPeriod == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
 
-    val anchor = Date(anchorDate!!)
-    val periodDates = remember(periodId, anchor) { FuxionCalendarLogic.getPeriodDates(anchor, periodId) }
-    val currentStatus = remember(anchor) { FuxionCalendarLogic.calculateStatus(anchor) }
-    val isCurrentPeriod = currentStatus.period == periodId
+    // 2. EXTRACCIÓN ESTÁTICA ABSOLUTA
+    val periodDates = remember(year, periodId) {
+        FuxionCalendarLogic.getPeriodDates(year, periodId)
+    }
 
-    // GATILLO DE ESTADO PURGADO DE REPOSITORIOS MANUALES
+    // Se envía un Date() inerte para cumplir con el contrato de la firma lógica
+    val currentStatus = remember { FuxionCalendarLogic.calculateStatus(Date()) }
+
+    // Validación cruzada para asegurar que el "Periodo Actual" corresponda al año en curso
+    val isCurrentPeriod = remember(currentStatus, year, periodId) {
+        val cal = Calendar.getInstance().apply { time = currentStatus.periodStartDate }
+        currentStatus.period == periodId && cal.get(Calendar.YEAR) == year
+    }
+
     LaunchedEffect(year, periodId) {
         viewModel.loadPeriodData(year, periodId)
     }
@@ -135,8 +141,11 @@ fun PeriodDetailScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             for (weekIndex in 1..4) {
-                val weekStartDate = FuxionCalendarLogic.addDays(periodDates.first, (weekIndex - 1) * 7)
-                val weekEndDate = FuxionCalendarLogic.addDays(weekStartDate, 6)
+                // 3. INYECCIÓN DEL CONTRATO DE NEGOCIO: Absorbe la asimetría de días anómalos
+                val (weekStartDate, weekEndDate) = remember(year, periodId, weekIndex) {
+                    FuxionCalendarLogic.getWeekDates(year, periodId, weekIndex)
+                }
+
                 val isThisWeekActive = isCurrentPeriod && (currentStatus.week == weekIndex)
 
                 val weekSlots = FuxionCalendarLogic.getSlotsForWeek(periodId, weekIndex, userStartPeriod!!)

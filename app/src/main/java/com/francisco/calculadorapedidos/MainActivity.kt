@@ -17,30 +17,34 @@ import com.francisco.calculadorapedidos.logic.FuxionNotificationHelper
 import com.francisco.calculadorapedidos.ui.theme.CalculadoraPedidosTheme
 import dagger.hilt.android.AndroidEntryPoint
 import java.util.Date
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    // INYECCIÓN DE CAMPO HILT: Elimina instanciación manual
+    @Inject lateinit var dataStore: FuxionDataStore
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val dataStore = FuxionDataStore(applicationContext)
         FuxionNotificationHelper.createNotificationChannel(applicationContext)
 
         setContent {
             CalculadoraPedidosTheme {
                 val navController = rememberNavController()
-                val anchorDate by dataStore.anchorDateFlow.collectAsState(initial = -1L)
+                // MUTACIÓN: Observar Nombre
+                val userName by dataStore.userNameFlow.collectAsState(initial = "LOADING")
 
-                if (anchorDate == -1L) {
-                    // Estado de hidratación inicial retenido
+                if (userName == "LOADING") {
+                    // Estado de retención
                 } else {
-                    val startDest = if (anchorDate == null) "onboarding" else "year_overview"
+                    val startDest = if (userName == null) "onboarding" else "year_overview"
 
-                    LaunchedEffect(anchorDate) {
-                        if (anchorDate != null) {
-                            val status = FuxionCalendarLogic.calculateStatus(Date(anchorDate!!))
-                            FuxionNotificationHelper.checkAndNotify(applicationContext, status)
-                        }
+                    LaunchedEffect(Unit) {
+                        // Purga del parámetro anchorDate
+                        val status = FuxionCalendarLogic.calculateStatus()
+                        FuxionNotificationHelper.checkAndNotify(applicationContext, status)
                     }
 
                     NavHost(navController = navController, startDestination = startDest) {
@@ -91,7 +95,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // HOMOLOGACIÓN DE NODO 4: Eliminación de parámetros obsoletos y corrección de URL
                         composable(
                             route = "week_management/{year}/{periodId}/{weekId}",
                             arguments = listOf(
@@ -108,16 +111,14 @@ class MainActivity : ComponentActivity() {
                                 year = year,
                                 periodId = periodId,
                                 weekId = weekId,
-                                dataStore = dataStore, // <-- INYECCIÓN DE INSTANCIA PRE-EXISTENTE
+                                dataStore = dataStore,
                                 onBack = { navController.popBackStack() },
                                 onNavigateToOrder = { clientId, targetPoints ->
-                                    // ELIMINACIÓN DE BARRERA: Se permite el paso estricto del 0 para comodines
                                     navController.navigate("order_screen/$year/$periodId/$weekId/$clientId/$targetPoints")
                                 }
                             )
                         }
 
-                        // HOMOLOGACIÓN DE NODO 5: Extracción de variables 4D completas
                         composable(
                             route = "order_screen/{year}/{periodId}/{weekId}/{clientId}/{goal}",
                             arguments = listOf(
@@ -145,7 +146,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // INYECCIÓN DE NODO FALTANTE: Planificación algorítmica
                         composable(
                             route = "full_plan_distribution/{year}/{periodId}/{goal}",
                             arguments = listOf(
@@ -173,12 +173,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // RUTA 7: CONFIGURACIÓN GENERAL
                         composable("settings") {
                             SettingsScreen(
-                                dataStore = dataStore,
                                 onBack = { navController.popBackStack() },
-                                // INYECCIÓN: Ruta directa hacia la Orden Fantasma (Semana 1)
                                 onNavigateToAffiliation = { year, startPeriod ->
                                     navController.navigate("order_screen/$year/$startPeriod/1/AFFILIATION_GHOST/40")
                                 }

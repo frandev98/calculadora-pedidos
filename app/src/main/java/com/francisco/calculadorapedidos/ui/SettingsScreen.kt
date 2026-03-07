@@ -1,10 +1,7 @@
 package com.francisco.calculadorapedidos.ui
 
-import android.app.DatePickerDialog
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,32 +16,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.francisco.calculadorapedidos.data.FuxionDataStore
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.ui.theme.*
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    dataStore: FuxionDataStore,
     onBack: () -> Unit,
-    onNavigateToAffiliation: (Int, Int) -> Unit
+    onNavigateToAffiliation: (Int, Int) -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    var anchorDateMillis by remember { mutableStateOf<Long?>(null) }
-    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = 1)
+    val userStartPeriod by viewModel.userStartPeriodFlow.collectAsState()
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var expandedPeriod by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        anchorDateMillis = dataStore.anchorDateFlow.first()
-    }
 
     Scaffold(
         containerColor = BackgroundWhite,
@@ -66,70 +53,6 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             Text("GENERAL", style = MaterialTheme.typography.labelSmall, color = TextSecondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(2.dp),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = FuxionBlue)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Inicio del Año Fuxion", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text("Fecha base del Periodo 1", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    if (anchorDateMillis != null) {
-                        val date = Date(anchorDateMillis!!)
-                        val dateFormat = SimpleDateFormat("dd 'de' MMMM, yyyy", Locale("es", "ES"))
-                        val dayOfWeekFormat = SimpleDateFormat("EEEE", Locale("es", "ES"))
-
-                        Box(
-                            modifier = Modifier.fillMaxWidth().background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)).padding(12.dp)
-                        ) {
-                            Column {
-                                Text("Configuración actual:", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                Text(dateFormat.format(date), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                                Text("Cortes semanales los: ${dayOfWeekFormat.format(date).replaceFirstChar { it.uppercase() }}", style = MaterialTheme.typography.bodySmall, color = ProgressOrange)
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Button(
-                        onClick = {
-                            val calendar = Calendar.getInstance()
-                            if (anchorDateMillis != null) calendar.timeInMillis = anchorDateMillis!!
-                            DatePickerDialog(
-                                context,
-                                { _, year, month, dayOfMonth ->
-                                    val newCal = Calendar.getInstance()
-                                    newCal.set(year, month, dayOfMonth)
-                                    val newDate = newCal.timeInMillis
-                                    anchorDateMillis = newDate
-                                    scope.launch { dataStore.saveAnchorDate(newDate) }
-                                },
-                                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)
-                            ).show()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = FuxionBlue),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("CAMBIAR FECHA DE INICIO")
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -172,7 +95,7 @@ fun SettingsScreen(
                                 DropdownMenuItem(
                                     text = { Text("Periodo $period") },
                                     onClick = {
-                                        scope.launch { dataStore.saveUserStartPeriod(period) }
+                                        viewModel.saveUserStartPeriod(period)
                                         expandedPeriod = false
                                     }
                                 )
@@ -264,22 +187,15 @@ fun SettingsScreen(
             onDismissRequest = { showDeleteConfirm = false },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = Color.Red) },
             title = { Text("¿Estás absolutamente seguro?") },
-            text = { Text("Esta acción eliminará permanentemente:\n\n• Todos tus clientes creados.\n• Todos los pedidos guardados.\n• La fecha de inicio configurada.\n\nLa aplicación quedará vacía como recién instalada.") },
+            text = { Text("Esta acción eliminará permanentemente todos tus clientes creados, pedidos y configuraciones. La aplicación quedará vacía como recién instalada.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val orderRepo = com.francisco.calculadorapedidos.data.OrderRepository(context)
-                        context.getSharedPreferences("fuxion_clients_db", Context.MODE_PRIVATE).edit().clear().apply()
-                        context.getSharedPreferences("fuxion_orders_db", Context.MODE_PRIVATE).edit().clear().apply()
-
-                        scope.launch {
-                            orderRepo.wipeAllRelationalData()
-                            dataStore.clearData()
+                        viewModel.factoryReset {
+                            Toast.makeText(context, "App restablecida. Datos relacionales destruidos.", Toast.LENGTH_LONG).show()
+                            showDeleteConfirm = false
+                            onBack()
                         }
-
-                        Toast.makeText(context, "App restablecida. Datos relacionales destruidos.", Toast.LENGTH_LONG).show()
-                        showDeleteConfirm = false
-                        onBack()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
                 ) { Text("SÍ, BORRAR TODO") }

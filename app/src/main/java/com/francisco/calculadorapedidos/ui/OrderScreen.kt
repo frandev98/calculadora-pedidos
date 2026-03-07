@@ -1,6 +1,5 @@
 package com.francisco.calculadorapedidos.ui
 
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,10 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.data.DistributedItem
 import com.francisco.calculadorapedidos.data.DistributionResult
-import com.francisco.calculadorapedidos.data.OrderRepository
 import com.francisco.calculadorapedidos.data.Product
 import com.francisco.calculadorapedidos.data.ProductCatalog
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
@@ -43,7 +41,6 @@ import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
 import java.util.Locale
 
-// 1. NODO PRINCIPAL (Debe ir primero)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderScreen(
@@ -53,34 +50,18 @@ fun OrderScreen(
     periodId: Int = 0,
     weekId: Int = 0,
     clientId: String = "",
-    viewModel: OrderViewModel = viewModel(),
+    viewModel: OrderViewModel = hiltViewModel(),
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
-    val orderRepository = remember { OrderRepository(context) }
+    val isSystemReady by viewModel.isSystemReady.collectAsState()
 
-    val dataStore = remember { com.francisco.calculadorapedidos.data.FuxionDataStore(context) }
-    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
-
-    if (userStartPeriod == null) {
+    if (!isSystemReady) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
 
-    LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId, userStartPeriod) {
-        viewModel.setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod!!)
-
-        if (isWeeklyMode && periodId != 0 && weekId != 0) {
-            val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
-            if (savedProducts.isNotEmpty()) {
-                viewModel.loadProducts(savedProducts)
-            }
-        } else if (!isWeeklyMode && periodId != 0) {
-            val draftProducts = orderRepository.getPeriodDraft(year, periodId)
-            if (draftProducts.isNotEmpty()) {
-                viewModel.loadProducts(draftProducts)
-            }
-        }
+    LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId) {
+        viewModel.initializeOrder(year, targetGoal, isWeeklyMode, periodId, weekId, clientId)
     }
 
     var showGlobalSaveSuccess by remember { mutableStateOf(false) }
@@ -90,14 +71,8 @@ fun OrderScreen(
             result = viewModel.distributionResult!!,
             onBack = { viewModel.clearResult() },
             onSave = {
-                val clientRepo = com.francisco.calculadorapedidos.data.ClientRepository(context)
-                viewModel.saveFullDistribution(
-                    year = year,
-                    result = viewModel.distributionResult!!,
-                    orderRepository = orderRepository,
-                    clientRepository = clientRepo
-                )
-                orderRepository.clearPeriodDraft(year, periodId)
+                viewModel.saveFullDistribution(year, viewModel.distributionResult!!)
+                viewModel.clearDraft(year, periodId)
                 showGlobalSaveSuccess = true
             }
         )
@@ -108,8 +83,7 @@ fun OrderScreen(
             year = year,
             periodId = periodId,
             weekId = weekId,
-            clientId = clientId,
-            orderRepository = orderRepository
+            clientId = clientId
         )
     }
 
@@ -124,7 +98,6 @@ fun OrderScreen(
     }
 }
 
-// 2. NODO DE ENTRADA DE PRODUCTOS
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrderInputView(
@@ -133,12 +106,8 @@ fun OrderInputView(
     year: Int,
     periodId: Int,
     weekId: Int,
-    clientId: String,
-    orderRepository: OrderRepository
+    clientId: String
 ) {
-    // INYECCIÓN DE ÁMBITO ASÍNCRONO PARA SQLITE
-    val scope = rememberCoroutineScope()
-
     var showCatalog by remember { mutableStateOf(false) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -161,7 +130,7 @@ fun OrderInputView(
 
     LaunchedEffect(viewModel.selectedProducts.toList()) {
         if (!viewModel.isWeeklyMode && periodId != 0) {
-            orderRepository.savePeriodDraft(year, periodId, viewModel.selectedProducts.toList())
+            viewModel.saveDraft(year, periodId)
         }
     }
 
@@ -186,15 +155,12 @@ fun OrderInputView(
                         onClick = {
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
-                                    // DELEGACIÓN ASÍNCRONA DE ESCRITURA
-                                    scope.launch {
-                                        if (viewModel.selectedProducts.isEmpty()) {
-                                            if (periodId != 0 && weekId != 0) orderRepository.clearOrder(year, periodId, weekId, clientId)
-                                            onBack()
-                                        } else {
-                                            if (periodId != 0 && weekId != 0) orderRepository.saveOrder(year, periodId, weekId, clientId, viewModel.selectedProducts)
-                                            if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
-                                        }
+                                    if (viewModel.selectedProducts.isEmpty()) {
+                                        if (periodId != 0 && weekId != 0) viewModel.clearWeeklyOrder(year, periodId, weekId, clientId)
+                                        onBack()
+                                    } else {
+                                        if (periodId != 0 && weekId != 0) viewModel.commitWeeklyOrder(year, periodId, weekId, clientId)
+                                        if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
                                     }
                                 } else {
                                     viewModel.onPrincipalActionButtonClick()
@@ -284,12 +250,9 @@ fun OrderInputView(
             confirmButton = {
                 Button(
                     onClick = {
-                        // DELEGACIÓN ASÍNCRONA DE BORRADO
-                        scope.launch {
-                            viewModel.clearCart()
-                            if (!viewModel.isWeeklyMode && periodId != 0) orderRepository.clearPeriodDraft(year, periodId)
-                            showDeleteDialog = false
-                        }
+                        viewModel.clearCart()
+                        if (!viewModel.isWeeklyMode && periodId != 0) viewModel.clearDraft(year, periodId)
+                        showDeleteDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) { Text("Borrar") }
@@ -301,7 +264,6 @@ fun OrderInputView(
     if (viewModel.isLoading) { CalculatingDialog() }
 }
 
-// 3. COMPONENTES VISUALES Y REUTILIZABLES
 data class ProgressState(
     val target: Double,
     val progress: Double,
@@ -392,7 +354,6 @@ fun GamifiedProgressHeader(
     }
 }
 
-// HOMOLOGACIÓN DE FIRMA: Se inyecta isAffiliation en la declaración original
 @Composable
 fun SelectedProductItem(
     product: Product,
@@ -418,16 +379,24 @@ fun SelectedProductItem(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF333333), maxLines = 2)
-                Text(product.presentation, style = MaterialTheme.typography.bodySmall, color = Color(0xFF757575))
+
+                // INYECCIÓN DE CONSTANTES UNITARIAS PÚBLICAS
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(product.presentation, style = MaterialTheme.typography.bodySmall, color = Color(0xFF757575))
+                    val formattedBase = if (product.points % 1.0 == 0.0) product.points.toInt().toString() else product.points.toString()
+                    Text(" • Base: $formattedBase pts", style = MaterialTheme.typography.bodySmall, color = FuxionBlue, fontWeight = FontWeight.SemiBold)
+                }
+
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // MÉTRICAS AGREGADAS (TOTALES)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val rowPoints = product.points * quantity
                     val formattedPoints = if (rowPoints % 1.0 == 0.0) rowPoints.toInt().toString() else rowPoints.toString()
                     val costMultiplier = if (isAffiliation) 0.80 else 1.0
                     val rowPrice = product.price * quantity * costMultiplier
 
-                    Text("$formattedPoints pts", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    Text("Σ $formattedPoints pts", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(12.dp))
                     Text(String.format(java.util.Locale("es", "PE"), "S/ %,.2f", rowPrice), style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace), color = Color.DarkGray, fontWeight = FontWeight.Bold)
                 }

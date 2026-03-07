@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 // INYECCIÓN DE DEPENDENCIA DE HILT
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.data.Client
@@ -36,8 +36,8 @@ fun WeekManagementScreen(
     dataStore: FuxionDataStore,
     onBack: () -> Unit,
     onNavigateToOrder: (String, Int) -> Unit,
-    clientViewModel: ClientViewModel = viewModel(),
-    // DELEGACIÓN DEL CICLO DE VIDA A LA FACTORÍA DE HILT
+    // CORRECCIÓN CRÍTICA: Delegación a Hilt
+    clientViewModel: ClientViewModel = hiltViewModel(),
     weekViewModel: WeekViewModel = hiltViewModel()
 ) {
     val allClients by clientViewModel.clients.collectAsState()

@@ -1,31 +1,28 @@
 package com.francisco.calculadorapedidos.data
 
-import android.content.Context
-import com.francisco.calculadorapedidos.data.db.FuxionDatabase
+import com.francisco.calculadorapedidos.data.db.DraftDao
+import com.francisco.calculadorapedidos.data.db.DraftEntity
+import com.francisco.calculadorapedidos.data.db.OrderDao
 import com.francisco.calculadorapedidos.data.db.OrderRecordEntity
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class SavedCartItem(val product: Product?, val quantity: Int)
 data class OrderMetrics(val points: Int, val money: Double)
 
-class OrderRepository(context: Context) {
-
-    private val dao = FuxionDatabase.getDatabase(context).orderDao()
-    private val prefs = context.getSharedPreferences("fuxion_orders_db", Context.MODE_PRIVATE)
-    private val gson = Gson()
+class OrderRepository(
+    private val orderDao: OrderDao,
+    private val draftDao: DraftDao
+) {
 
     companion object {
         const val AFFILIATION_CLIENT_ID = "AFFILIATION_GHOST"
     }
 
-    // --- TRANSACCIONES SQL (Room) ---
+    // --- TRANSACCIONES SQL (Room) PARA PEDIDOS CONSOLIDADOS ---
 
     suspend fun saveOrder(year: Int, period: Int, week: Int, clientId: String, products: List<Pair<Product, Int>>) {
         withContext(Dispatchers.IO) {
-            dao.deleteOrder(year, period, week, clientId)
+            orderDao.deleteOrder(year, period, week, clientId)
             val isAffil = clientId == AFFILIATION_CLIENT_ID
             val entities = products.map { (prod, qty) ->
                 OrderRecordEntity(
@@ -35,9 +32,9 @@ class OrderRepository(context: Context) {
                     clientId = clientId,
                     isAffiliation = isAffil,
                     productId = prod.id,
-                    productCode = prod.code,         // HOMOLOGACIÓN DE FIRMA
+                    productCode = prod.code,
                     productName = prod.name,
-                    productCategory = prod.category, // HOMOLOGACIÓN DE FIRMA
+                    productCategory = prod.category,
                     productPresentation = prod.presentation,
                     productImageRes = prod.imageRes,
                     points = prod.points,
@@ -45,19 +42,19 @@ class OrderRepository(context: Context) {
                     quantity = qty
                 )
             }
-            if (entities.isNotEmpty()) dao.insertItems(entities)
+            if (entities.isNotEmpty()) orderDao.insertItems(entities)
         }
     }
 
     suspend fun getOrder(year: Int, period: Int, week: Int, clientId: String): List<Pair<Product, Int>> {
         return withContext(Dispatchers.IO) {
-            val entities = dao.getOrderItems(year, period, week, clientId)
+            val entities = orderDao.getOrderItems(year, period, week, clientId)
             entities.map { entity ->
                 val prod = Product(
                     id = entity.productId,
-                    code = entity.productCode,             // HOMOLOGACIÓN DE FIRMA
+                    code = entity.productCode,
                     name = entity.productName,
-                    category = entity.productCategory,     // HOMOLOGACIÓN DE FIRMA
+                    category = entity.productCategory,
                     points = entity.points,
                     price = entity.price,
                     presentation = entity.productPresentation,
@@ -69,7 +66,7 @@ class OrderRepository(context: Context) {
     }
 
     suspend fun clearOrder(year: Int, period: Int, week: Int, clientId: String) {
-        withContext(Dispatchers.IO) { dao.deleteOrder(year, period, week, clientId) }
+        withContext(Dispatchers.IO) { orderDao.deleteOrder(year, period, week, clientId) }
     }
 
     suspend fun getAffiliationOrder(year: Int, startPeriod: Int): List<Pair<Product, Int>> {
@@ -80,54 +77,51 @@ class OrderRepository(context: Context) {
 
     suspend fun getPeriodMetrics(year: Int, period: Int): OrderMetrics {
         return withContext(Dispatchers.IO) {
-            val pts = dao.getPeriodTotalPoints(year, period)
-            val money = dao.getPeriodTotalMoney(year, period)
+            val pts = orderDao.getPeriodTotalPoints(year, period)
+            val money = orderDao.getPeriodTotalMoney(year, period)
             OrderMetrics(pts.toInt(), money)
         }
     }
 
     suspend fun getWeekMetrics(year: Int, period: Int, week: Int): OrderMetrics {
         return withContext(Dispatchers.IO) {
-            val pts = dao.getWeekTotalPoints(year, period, week)
-            val money = dao.getWeekTotalMoney(year, period, week)
+            val pts = orderDao.getWeekTotalPoints(year, period, week)
+            val money = orderDao.getWeekTotalMoney(year, period, week)
             OrderMetrics(pts.toInt(), money)
         }
     }
 
     suspend fun wipeAllRelationalData() {
-        withContext(Dispatchers.IO) { dao.wipeDatabase() }
+        withContext(Dispatchers.IO) {
+            orderDao.wipeDatabase()
+            draftDao.wipeDrafts()
+        }
     }
 
-    // --- LLAVES PLANAS (Mantenidas en SharedPreferences) ---
+    // --- TRANSACCIONES SQL (Room) PARA BORRADORES (DRAFTS) ---
 
-    private fun getGoalKey(year: Int, period: Int) = "goal_y${year}_p$period"
-    private fun getDraftKey(year: Int, period: Int) = "draft_y${year}_p$period"
-
-    fun savePeriodGoal(year: Int, period: Int, goal: Int) {
-        prefs.edit().putInt(getGoalKey(year, period), goal).apply()
+    suspend fun savePeriodDraft(year: Int, period: Int, products: List<Pair<Product, Int>>) {
+        withContext(Dispatchers.IO) {
+            draftDao.clearDrafts(year, period)
+            val entities = products.map { (prod, qty) ->
+                DraftEntity(year = year, period = period, productId = prod.id, quantity = qty)
+            }
+            if (entities.isNotEmpty()) draftDao.insertDrafts(entities)
+        }
     }
 
-    fun getPeriodGoal(year: Int, period: Int): Int {
-        val key = getGoalKey(year, period)
-        if (prefs.contains(key)) return prefs.getInt(key, 540)
-        return when (period) { in 1..4 -> 540; in 5..8 -> 645; in 9..11 -> 540; in 12..13 -> 645; else -> 540 }
+    suspend fun getPeriodDraft(year: Int, period: Int): List<Pair<Product, Int>> {
+        return withContext(Dispatchers.IO) {
+            val entities = draftDao.getDrafts(year, period)
+            // Reconstrucción del objeto Product mediante cruce con el catálogo maestro en memoria
+            entities.mapNotNull { entity ->
+                val product = ProductCatalog.masterList.find { it.id == entity.productId }
+                if (product != null) Pair(product, entity.quantity) else null
+            }
+        }
     }
 
-    fun savePeriodDraft(year: Int, period: Int, products: List<Pair<Product, Int>>) {
-        val safeList = products.map { SavedCartItem(it.first, it.second) }
-        prefs.edit().putString(getDraftKey(year, period), gson.toJson(safeList)).apply()
-    }
-
-    fun getPeriodDraft(year: Int, period: Int): List<Pair<Product, Int>> {
-        val json = prefs.getString(getDraftKey(year, period), null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<SavedCartItem>>() {}.type
-            val safeList: List<SavedCartItem> = gson.fromJson(json, type)
-            safeList.mapNotNull { if (it.product != null) Pair(it.product, it.quantity) else null }
-        } catch (e: Exception) { emptyList() }
-    }
-
-    fun clearPeriodDraft(year: Int, period: Int) {
-        prefs.edit().remove(getDraftKey(year, period)).apply()
+    suspend fun clearPeriodDraft(year: Int, period: Int) {
+        withContext(Dispatchers.IO) { draftDao.clearDrafts(year, period) }
     }
 }

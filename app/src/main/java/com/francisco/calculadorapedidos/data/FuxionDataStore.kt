@@ -1,66 +1,41 @@
 package com.francisco.calculadorapedidos.data
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-// Extensión para crear el DataStore
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "fuxion_prefs")
+val Context.dataStore by preferencesDataStore(name = "fuxion_prefs")
 
-class FuxionDataStore(private val context: Context) {
+class FuxionDataStore(context: Context) {
+    private val dataStore = context.dataStore
 
     companion object {
-        val KEY_ANCHOR_DATE = longPreferencesKey("anchor_date_p1")
-        // Declaración de Llave Estricta para Desfase de Matriz
-        val USER_START_PERIOD = intPreferencesKey("user_start_period")
+        // VARIABLE MUTADA: De AnchorDate (Long) a UserName (String)
+        val USER_NAME_KEY = stringPreferencesKey("user_name")
+        val USER_START_PERIOD_KEY = intPreferencesKey("user_start_period")
     }
 
-    // --- ANCHOR DATE (Inicio P1) ---
-    val anchorDateFlow: Flow<Long?> = context.dataStore.data
-        .map { preferences ->
-            preferences[KEY_ANCHOR_DATE]
-        }
-
-    suspend fun saveAnchorDate(timestamp: Long) {
-        context.dataStore.edit { preferences ->
-            preferences[KEY_ANCHOR_DATE] = timestamp
-        }
+    val userNameFlow: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[USER_NAME_KEY]
     }
 
-    // --- COORDENADA DE DESFASE (MATRIZ RELATIVA) ---
-    val userStartPeriodFlow: Flow<Int?> = context.dataStore.data
-        .map { preferences ->
-            preferences[USER_START_PERIOD]
-        }
+    val userStartPeriodFlow: Flow<Int?> = dataStore.data.map { preferences ->
+        preferences[USER_START_PERIOD_KEY]
+    }
+
+    suspend fun saveUserName(name: String) {
+        dataStore.edit { preferences -> preferences[USER_NAME_KEY] = name }
+    }
 
     suspend fun saveUserStartPeriod(period: Int) {
-        context.dataStore.edit { preferences ->
-            preferences[USER_START_PERIOD] = period
-        }
+        dataStore.edit { preferences -> preferences[USER_START_PERIOD_KEY] = period }
     }
 
-    // --- METAS POR PERIODO ---
-    fun getGoalForPeriod(period: Int): Flow<Int> = context.dataStore.data
-        .map { preferences ->
-            preferences[intPreferencesKey("goal_p$period")] ?: 540 // Default 540 (Base)
-        }
-
-    suspend fun saveGoalForPeriod(period: Int, goal: Int) {
-        context.dataStore.edit { preferences ->
-            preferences[intPreferencesKey("goal_p$period")] = goal
-        }
-    }
-
-    // --- PURGA DE DATOS ---
     suspend fun clearData() {
-        context.dataStore.edit { preferences ->
-            preferences.clear()
-        }
+        dataStore.edit { it.clear() }
     }
 }

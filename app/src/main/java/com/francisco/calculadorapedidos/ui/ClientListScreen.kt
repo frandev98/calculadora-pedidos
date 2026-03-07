@@ -3,9 +3,6 @@ package com.francisco.calculadorapedidos.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,28 +18,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.lifecycle.viewmodel.compose.viewModel
+// INYECCIÓN CRÍTICA: Delegación a Hilt
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.francisco.calculadorapedidos.data.Client
 import com.francisco.calculadorapedidos.data.ClientType
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.foundation.background
 import com.francisco.calculadorapedidos.ui.theme.TextPrimary
 import com.francisco.calculadorapedidos.ui.theme.TextSecondary
+import androidx.compose.foundation.background
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientListScreen(
-    viewModel: ClientViewModel = viewModel(),
+    // DELEGACIÓN DEL CICLO DE VIDA A LA FACTORÍA DE HILT
+    viewModel: ClientViewModel = hiltViewModel(),
     onBack: () -> Unit
 ) {
-    // 1. RECOLECTAR EL ESTADO (Soluciona el error de .filter)
+    // 1. RECOLECTAR EL ESTADO
     val allClients by viewModel.clients.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -120,7 +115,7 @@ fun ClientListScreen(
             clientToEdit = editingClient,
             fixedIndex = targetFixedIndex,
             onDismiss = { showDialog = false },
-            onSave = { name, code, email, pass -> // <--- Solo 4 argumentos
+            onSave = { name, code, email, pass ->
                 if (targetFixedIndex != null) {
                     viewModel.saveFixedClient(targetFixedIndex!!, name, code, email, pass)
                 } else {
@@ -239,8 +234,6 @@ fun WildcardList(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // SOLUCIÓN LISTA: Usamos items(clients) directamente
-            // NO 'items(count = clients)', eso estaba causando el error de .name
             items(items = clients, key = { it.id }) { client ->
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { onEdit(client) },
@@ -267,7 +260,6 @@ fun WildcardList(
                         Spacer(Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(client.name, fontWeight = FontWeight.Bold)
-                            // AHORA SÍ RECONOCERÁ .username PORQUE 'client' ES UN OBJETO CLIENT
                             Text(text = "Email: ${client.email}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                         }
                         IconButton(onClick = { onDelete(client) }) {
@@ -286,7 +278,7 @@ fun ClientDialog(
     clientToEdit: Client?,
     fixedIndex: Int?,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String) -> Unit // Firma simplificada: Name, Code, Email, Pass
+    onSave: (String, String, String, String) -> Unit
 ) {
     var name by remember { mutableStateOf(clientToEdit?.name ?: "") }
     var code by remember { mutableStateOf(clientToEdit?.fuxionId ?: "") }
