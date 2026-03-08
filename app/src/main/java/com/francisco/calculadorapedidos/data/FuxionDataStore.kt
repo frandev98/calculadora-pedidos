@@ -2,7 +2,7 @@ package com.francisco.calculadorapedidos.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -14,25 +14,24 @@ class FuxionDataStore(context: Context) {
     private val dataStore = context.dataStore
 
     companion object {
-        // VARIABLE MUTADA: De AnchorDate (Long) a UserName (String)
         val USER_NAME_KEY = stringPreferencesKey("user_name")
-        val USER_START_PERIOD_KEY = intPreferencesKey("user_start_period")
+        val USER_START_TIMESTAMP_KEY = longPreferencesKey("user_start_timestamp")
     }
 
     val userNameFlow: Flow<String?> = dataStore.data.map { preferences ->
         preferences[USER_NAME_KEY]
     }
 
-    val userStartPeriodFlow: Flow<Int?> = dataStore.data.map { preferences ->
-        preferences[USER_START_PERIOD_KEY]
+    val userStartTimestampFlow: Flow<Long?> = dataStore.data.map { preferences ->
+        preferences[USER_START_TIMESTAMP_KEY]
     }
 
     suspend fun saveUserName(name: String) {
         dataStore.edit { preferences -> preferences[USER_NAME_KEY] = name }
     }
 
-    suspend fun saveUserStartPeriod(period: Int) {
-        dataStore.edit { preferences -> preferences[USER_START_PERIOD_KEY] = period }
+    suspend fun saveUserStartTimestamp(timestamp: Long) {
+        dataStore.edit { preferences -> preferences[USER_START_TIMESTAMP_KEY] = timestamp }
     }
 
     suspend fun clearData() {

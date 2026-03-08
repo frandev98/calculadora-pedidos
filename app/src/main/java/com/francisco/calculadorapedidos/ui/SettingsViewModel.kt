@@ -21,11 +21,11 @@ class SettingsViewModel @Inject constructor(
     private val dataStore: FuxionDataStore
 ) : ViewModel() {
 
-    val userStartPeriodFlow: StateFlow<Int?> = dataStore.userStartPeriodFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
+    val userStartTimestampFlow: StateFlow<Long?> = dataStore.userStartTimestampFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    fun saveUserStartPeriod(period: Int) {
-        viewModelScope.launch(Dispatchers.IO) { dataStore.saveUserStartPeriod(period) }
+    fun saveUserStartTimestamp(timestamp: Long) {
+        viewModelScope.launch(Dispatchers.IO) { dataStore.saveUserStartTimestamp(timestamp) }
     }
 
     fun factoryReset(onComplete: () -> Unit) {

@@ -3,6 +3,7 @@ package com.francisco.calculadorapedidos.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,8 +29,10 @@ import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.data.OrderMetrics
 import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 import com.francisco.calculadorapedidos.ui.theme.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,8 +51,47 @@ fun YearOverviewScreen(
 
     val initialPage = 500
     val pageOffset = currentRealYear - initialPage
-    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { 1000 })
-    val activeYear = pagerState.currentPage + pageOffset
+
+    // 1. SEPARACIÓN DE ESTADOS (Paginadores Gemelos)
+    val topPagerState = rememberPagerState(initialPage = initialPage, pageCount = { 1000 })
+    val bottomPagerState = rememberPagerState(initialPage = initialPage, pageCount = { 1000 })
+
+    val activeYear = bottomPagerState.currentPage + pageOffset
+    val coroutineScope = rememberCoroutineScope()
+
+    // 2. GESTOR DE TRÁFICO BIDIRECCIONAL (Evita el bucle infinito)
+    // 1 = Arriba lidera el movimiento, 2 = Abajo lidera el movimiento
+    var scrollingDriver by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(topPagerState.isScrollInProgress) {
+        if (topPagerState.isScrollInProgress && scrollingDriver == null) {
+            scrollingDriver = 1
+        } else if (!topPagerState.isScrollInProgress && scrollingDriver == 1) {
+            scrollingDriver = null
+        }
+    }
+
+    LaunchedEffect(bottomPagerState.isScrollInProgress) {
+        if (bottomPagerState.isScrollInProgress && scrollingDriver == null) {
+            scrollingDriver = 2
+        } else if (!bottomPagerState.isScrollInProgress && scrollingDriver == 2) {
+            scrollingDriver = null
+        }
+    }
+
+    LaunchedEffect(scrollingDriver) {
+        if (scrollingDriver == 1) {
+            snapshotFlow { Pair(topPagerState.currentPage, topPagerState.currentPageOffsetFraction) }
+                .collect { (page, offset) ->
+                    bottomPagerState.scrollToPage(page, offset)
+                }
+        } else if (scrollingDriver == 2) {
+            snapshotFlow { Pair(bottomPagerState.currentPage, bottomPagerState.currentPageOffsetFraction) }
+                .collect { (page, offset) ->
+                    topPagerState.scrollToPage(page, offset)
+                }
+        }
+    }
 
     LaunchedEffect(activeYear) {
         viewModel.loadYear(activeYear)
@@ -58,6 +102,11 @@ fun YearOverviewScreen(
     val today = Date()
     val todayFormat = SimpleDateFormat("EEEE, d 'DE' MMMM 'DE' yyyy", Locale("es", "ES"))
     val rangeFormat = SimpleDateFormat("d MMM", Locale("es", "ES"))
+
+    // 3. CÁLCULO DINÁMICO DE PANTALLA PARA JUNTAR LOS AÑOS
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val yearItemWidth = 130.dp
+    val horizontalPadding = (screenWidth - yearItemWidth) / 2
 
     Scaffold(
         topBar = {
@@ -94,7 +143,6 @@ fun YearOverviewScreen(
                         Text(todayFormat.format(today).uppercase(), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                     }
 
-                    // INYECCIÓN DE NOMBRE DE USUARIO
                     Text("HOLA, ${userName?.uppercase() ?: "SOCIO"}", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 12.dp))
 
                     HorizontalDivider(color = Color.White.copy(alpha = 0.2f), thickness = 1.dp)
@@ -142,24 +190,64 @@ fun YearOverviewScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.ArrowBackIosNew, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
-                Text("HISTÓRICO ${activeYear - 1}", color = TextSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            // PAGINADOR GEMELO SUPERIOR (Barra Interactiva de Años)
+            HorizontalPager(
+                state = topPagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = horizontalPadding),
+                pageSpacing = 0.dp
+            ) { page ->
+                val pageYear = page + pageOffset
+                val isSelected = topPagerState.currentPage == page
 
-                Surface(color = FuxionBlue.copy(alpha = 0.1f), shape = RoundedCornerShape(50)) {
-                    Text("AÑO $activeYear", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, color = FuxionBlue, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                // MÁQUINA DE ESTADO MATRICIAL: Calcula la opacidad y tamaño durante el arrastre
+                val pageOffsetFraction = (topPagerState.currentPage - page) + topPagerState.currentPageOffsetFraction
+                val absoluteOffset = abs(pageOffsetFraction).coerceIn(0f, 1f)
+
+                val dynamicScale = 1f - (absoluteOffset * 0.2f)
+                val dynamicAlpha = 1f - (absoluteOffset * 0.6f)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = dynamicScale
+                            scaleY = dynamicScale
+                            alpha = dynamicAlpha
+                        }
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            // Al hacer clic, forzamos que el de ARRIBA mande y anime
+                            coroutineScope.launch {
+                                scrollingDriver = 1
+                                topPagerState.animateScrollToPage(page)
+                                scrollingDriver = null
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        color = if (isSelected) FuxionBlue.copy(alpha = 0.1f) else Color.Transparent,
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = "AÑO $pageYear",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                            color = if (isSelected) FuxionBlue else TextSecondary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
+                    }
                 }
-
-                Text("FUTURO ${activeYear + 1}", color = TextSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                Icon(Icons.Default.ArrowForwardIos, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(14.dp))
             }
 
+            // PAGINADOR GEMELO INFERIOR (Tarjetas de Periodos)
             HorizontalPager(
-                state = pagerState,
+                state = bottomPagerState,
                 modifier = Modifier.weight(1f)
             ) { page ->
                 val pageYear = page + pageOffset
@@ -170,7 +258,6 @@ fun YearOverviewScreen(
                     contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     items((1..13).toList()) { periodNum ->
-                        // DELEGACIÓN ESTRUCTURAL A MATRIZ ESTÁTICA
                         val (start, end) = remember(pageYear, periodNum) { FuxionCalendarLogic.getPeriodDates(pageYear, periodNum) }
 
                         val isCurrent = (pageYear == currentRealYear && periodNum == status.period)

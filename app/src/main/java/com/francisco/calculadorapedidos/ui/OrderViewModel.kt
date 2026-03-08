@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
+import com.francisco.calculadorapedidos.logic.FuxionCalendarLogic
 
 @HiltViewModel
 class OrderViewModel @Inject constructor(
@@ -53,7 +54,6 @@ class OrderViewModel @Inject constructor(
     var userStartPeriod by mutableStateOf(1)
         private set
 
-    // BANDERA ESTRUCTURAL: Previene la destrucción por autoguardado prematuro
     var hasLoadedInitialData by mutableStateOf(false)
         private set
 
@@ -64,16 +64,16 @@ class OrderViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            dataStore.userStartPeriodFlow.collect { period ->
-                if (period != null) {
-                    userStartPeriod = period
+            dataStore.userStartTimestampFlow.collect { timestamp ->
+                if (timestamp != null) {
+                    // MUTACIÓN: Extracción matemática inversa
+                    val coords = FuxionCalendarLogic.getCoordinatesFromDate(timestamp)
+                    userStartPeriod = coords.period
                     _isSystemReady.value = true
                 }
             }
         }
     }
-
-    // --- ENRUTAMIENTO Y LÓGICA DE NEGOCIO ---
 
     fun setupMode(goal: Int, isWeekly: Boolean, periodId: Int, startPeriod: Int) {
         targetGoal = goal
@@ -81,7 +81,7 @@ class OrderViewModel @Inject constructor(
         currentPeriodId = periodId
         userStartPeriod = startPeriod
         distributionResult = null
-        _selectedProducts.clear() // MÁXIMA PRIORIDAD: Destruir el estado fantasma anterior
+        _selectedProducts.clear()
     }
 
     fun addProduct(product: Product) {
@@ -147,8 +147,6 @@ class OrderViewModel @Inject constructor(
         _selectedProducts.addAll(products)
     }
 
-    // --- ENCAPSULACIÓN DE OPERACIONES I/O (ACID) ---
-
     fun initializeOrder(year: Int, targetGoal: Int, isWeeklyMode: Boolean, periodId: Int, weekId: Int, clientId: String) {
         hasLoadedInitialData = false
         setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod)
@@ -157,7 +155,6 @@ class OrderViewModel @Inject constructor(
             val draftW = if (isWeeklyMode) weekId else 0
             val draftC = if (isWeeklyMode) clientId else "PERIOD"
 
-            // 1. Prioridad Absoluta: Buscar en Sandbox (Borrador)
             val draftProducts = orderRepository.getPeriodDraft(year, periodId, draftW, draftC)
 
             if (draftProducts.isNotEmpty()) {
@@ -166,7 +163,6 @@ class OrderViewModel @Inject constructor(
                     hasLoadedInitialData = true
                 }
             } else {
-                // 2. Si no hay borrador y es modo semanal, hidratar del Ledger oficial (order_records)
                 if (isWeeklyMode && periodId != 0 && weekId != 0 && clientId.isNotEmpty()) {
                     val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
                     withContext(Dispatchers.Main) {
@@ -182,11 +178,12 @@ class OrderViewModel @Inject constructor(
         }
     }
 
-    fun saveDraft(year: Int, periodId: Int, weekId: Int, clientId: String) {
+    // INYECCIÓN DE AISLAMIENTO: Las listas se reciben inmutables desde el Hilo Principal
+    fun saveDraft(year: Int, periodId: Int, weekId: Int, clientId: String, products: List<Pair<Product, Int>>) {
         viewModelScope.launch(Dispatchers.IO) {
             val draftW = if (isWeeklyMode) weekId else 0
             val draftC = if (isWeeklyMode) clientId else "PERIOD"
-            orderRepository.savePeriodDraft(year, periodId, draftW, draftC, _selectedProducts.toList())
+            orderRepository.savePeriodDraft(year, periodId, draftW, draftC, products)
         }
     }
 
@@ -198,10 +195,10 @@ class OrderViewModel @Inject constructor(
         }
     }
 
-    fun commitWeeklyOrder(year: Int, periodId: Int, weekId: Int, clientId: String) {
+    fun commitWeeklyOrder(year: Int, periodId: Int, weekId: Int, clientId: String, products: List<Pair<Product, Int>>) {
         viewModelScope.launch(Dispatchers.IO) {
-            orderRepository.saveOrder(year, periodId, weekId, clientId, _selectedProducts.toList())
-            orderRepository.clearPeriodDraft(year, periodId, weekId, clientId) // Purga el borrador
+            orderRepository.saveOrder(year, periodId, weekId, clientId, products)
+            orderRepository.clearPeriodDraft(year, periodId, weekId, clientId)
         }
     }
 

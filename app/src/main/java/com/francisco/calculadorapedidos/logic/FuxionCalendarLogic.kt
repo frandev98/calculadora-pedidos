@@ -8,6 +8,7 @@ data class WeeklySlotDef(val slotId: String, val fixedIndex: Int, val fallbackNa
 
 object FuxionCalendarLogic {
 
+
     fun getAbsoluteWeek(periodId: Int, weekIndex: Int): Int {
         return ((periodId - 1) * 4) + weekIndex
     }
@@ -145,4 +146,6 @@ object FuxionCalendarLogic {
         c.add(Calendar.DAY_OF_YEAR, days)
         return c.time
     }
+
+
 }

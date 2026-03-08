@@ -61,7 +61,7 @@ fun OrderScreen(
         return
     }
 
-    LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId) {
+    LaunchedEffect(year, targetGoal, isWeeklyMode, periodId, weekId, clientId) {
         viewModel.initializeOrder(year, targetGoal, isWeeklyMode, periodId, weekId, clientId)
     }
 
@@ -73,10 +73,18 @@ fun OrderScreen(
             onBack = { viewModel.clearResult() },
             onSave = {
                 viewModel.saveFullDistribution(year, viewModel.distributionResult!!)
-                // CORRECCIÓN: Inyección de las 4 coordenadas del Sandbox
                 viewModel.clearDraft(year, periodId, weekId, clientId)
                 showGlobalSaveSuccess = true
             }
+        )
+    } else {
+        OrderInputView(
+            viewModel = viewModel,
+            onBack = onBack,
+            year = year,
+            periodId = periodId,
+            weekId = weekId,
+            clientId = clientId
         )
     }
 
@@ -122,11 +130,12 @@ fun OrderInputView(
         else -> "Planificador de Periodo"
     }
 
-    // GATILLO DE PERSISTENCIA REACTIVA AUTÓNOMA (SANEADO: AHORA OPERA 100% SOBRE EL SANDBOX)
-    LaunchedEffect(viewModel.selectedProducts.toList(), viewModel.hasLoadedInitialData) {
+    // CAPTURA DE ESTADO EN HILO PRINCIPAL: Evita Crash de Concurrencia
+    val currentProducts = viewModel.selectedProducts.toList()
+
+    LaunchedEffect(currentProducts, viewModel.hasLoadedInitialData) {
         if (viewModel.hasLoadedInitialData && periodId != 0) {
-            // Guarda silenciosamente en period_drafts sin importar el modo. No altera los Cheques.
-            viewModel.saveDraft(year, periodId, weekId, clientId)
+            viewModel.saveDraft(year, periodId, weekId, clientId, currentProducts)
         }
     }
 
@@ -151,9 +160,12 @@ fun OrderInputView(
                         onClick = {
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
-                                    if (viewModel.selectedProducts.isEmpty()) {
+                                    if (currentProducts.isEmpty()) {
+                                        viewModel.clearWeeklyOrder(year, periodId, weekId, clientId)
                                         onBack()
                                     } else {
+                                        // EJECUCIÓN ATÓMICA: Confirmación de venta al Ledger
+                                        viewModel.commitWeeklyOrder(year, periodId, weekId, clientId, currentProducts)
                                         if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
                                     }
                                 } else {
@@ -237,16 +249,6 @@ fun OrderInputView(
         )
     }
 
-    // GATILLO DE PERSISTENCIA REACTIVA AUTÓNOMA (SANEADO: AHORA OPERA 100% SOBRE EL SANDBOX)
-    LaunchedEffect(viewModel.selectedProducts.toList(), viewModel.hasLoadedInitialData) {
-        if (viewModel.hasLoadedInitialData && periodId != 0) {
-            // Guarda silenciosamente en period_drafts sin importar el modo. No altera los Cheques.
-            viewModel.saveDraft(year, periodId, weekId, clientId)
-        }
-    }
-
-// ... (MÁS ABAJO, EN EL DIÁLOGO DE BORRADO, REEMPLAZAR EL BOTÓN BORRAR) ...
-
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -256,9 +258,9 @@ fun OrderInputView(
                 Button(
                     onClick = {
                         viewModel.clearCart()
-                        viewModel.clearDraft(year, periodId, weekId, clientId) // Purga el Sandbox
+                        viewModel.clearDraft(year, periodId, weekId, clientId)
                         if (viewModel.isWeeklyMode && periodId != 0 && weekId != 0) {
-                            viewModel.clearWeeklyOrder(year, periodId, weekId, clientId) // Purga Ledger
+                            viewModel.clearWeeklyOrder(year, periodId, weekId, clientId)
                         }
                         showDeleteDialog = false
                     },

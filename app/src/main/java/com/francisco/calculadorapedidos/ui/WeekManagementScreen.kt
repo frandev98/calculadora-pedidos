@@ -41,12 +41,18 @@ fun WeekManagementScreen(
     weekViewModel: WeekViewModel = hiltViewModel()
 ) {
     val allClients by clientViewModel.clients.collectAsState()
-    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
     val uiState by weekViewModel.uiState.collectAsState()
 
-    if (userStartPeriod == null) {
+    val userStartTimestamp by dataStore.userStartTimestampFlow.collectAsState(initial = null)
+
+    if (userStartTimestamp == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
+    }
+
+// Extracción matemática del periodo para mantener retrocompatibilidad con las lógicas visuales
+    val userStartPeriod = remember(userStartTimestamp) {
+        FuxionCalendarLogic.getCoordinatesFromDate(userStartTimestamp!!).period
     }
 
     val slots = remember(periodId, weekId, userStartPeriod) {

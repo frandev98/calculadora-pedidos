@@ -176,8 +176,9 @@ class MainActivity : ComponentActivity() {
                         composable("settings") {
                             SettingsScreen(
                                 onBack = { navController.popBackStack() },
-                                onNavigateToAffiliation = { year, startPeriod ->
-                                    navController.navigate("order_screen/$year/$startPeriod/1/AFFILIATION_GHOST/40")
+                                // MUTACIÓN: Se recibe también la semana calculada y se inyecta
+                                onNavigateToAffiliation = { year, startPeriod, startWeek ->
+                                    navController.navigate("order_screen/$year/$startPeriod/$startWeek/AFFILIATION_GHOST/40")
                                 }
                             )
                         }

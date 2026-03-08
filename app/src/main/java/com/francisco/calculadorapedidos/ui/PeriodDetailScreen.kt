@@ -41,13 +41,19 @@ fun PeriodDetailScreen(
     onNavigateToFullPlan: () -> Unit,
     viewModel: PeriodViewModel = hiltViewModel()
 ) {
-    // 1. PURGA DE ANCHOR DATE: Solo necesitamos el periodo de inicio del usuario
-    val userStartPeriod by dataStore.userStartPeriodFlow.collectAsState(initial = null)
+    // 1. PURGA DE ANCHOR DATE: Solo necesitamos el periodo de inicio del usuari
     val uiState by viewModel.uiState.collectAsState()
 
-    if (userStartPeriod == null) {
+    val userStartTimestamp by dataStore.userStartTimestampFlow.collectAsState(initial = null)
+
+    if (userStartTimestamp == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
+    }
+
+// Extracción matemática del periodo para mantener retrocompatibilidad con las lógicas visuales
+    val userStartPeriod = remember(userStartTimestamp) {
+        FuxionCalendarLogic.getCoordinatesFromDate(userStartTimestamp!!).period
     }
 
     // 2. EXTRACCIÓN ESTÁTICA ABSOLUTA

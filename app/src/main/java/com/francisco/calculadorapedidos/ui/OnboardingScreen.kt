@@ -3,6 +3,8 @@ package com.francisco.calculadorapedidos.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,14 +16,22 @@ import com.francisco.calculadorapedidos.data.FuxionDataStore
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(dataStore: FuxionDataStore, onFinish: () -> Unit) {
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
-    var period by remember { mutableIntStateOf(1) }
-    var expanded by remember { mutableStateOf(false) }
+
+    var showDatePicker by remember { mutableStateOf(false) }
+    var selectedTimestamp by remember { mutableStateOf<Long?>(null) }
+
+    val datePickerState = rememberDatePickerState()
+    val dateFormat = remember { SimpleDateFormat("dd 'de' MMMM, yyyy", Locale("es", "ES")) }
 
     Box(modifier = Modifier.fillMaxSize().background(FuxionBlue), contentAlignment = Alignment.Center) {
         Card(
@@ -44,18 +54,33 @@ fun OnboardingScreen(dataStore: FuxionDataStore, onFinish: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-                    OutlinedTextField(
-                        value = "Empecé en: Periodo $period",
-                        onValueChange = {}, readOnly = true,
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FuxionBlue)
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        (1..13).forEach { p ->
-                            DropdownMenuItem(text = { Text("Periodo $p") }, onClick = { period = p; expanded = false })
+                OutlinedTextField(
+                    value = if (selectedTimestamp != null) dateFormat.format(Date(selectedTimestamp!!)) else "Selecciona fecha de afiliación",
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.CalendarToday, null, tint = FuxionBlue)
                         }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FuxionBlue)
+                )
+
+                if (showDatePicker) {
+                    DatePickerDialog(
+                        onDismissRequest = { showDatePicker = false },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                selectedTimestamp = datePickerState.selectedDateMillis
+                                showDatePicker = false
+                            }) { Text("Aceptar") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") }
+                        }
+                    ) {
+                        DatePicker(state = datePickerState)
                     }
                 }
 
@@ -64,9 +89,10 @@ fun OnboardingScreen(dataStore: FuxionDataStore, onFinish: () -> Unit) {
                 Button(
                     onClick = {
                         val finalName = name.trim().ifEmpty { "Socio" }
+                        val finalTime = selectedTimestamp ?: Calendar.getInstance().timeInMillis
                         scope.launch {
                             dataStore.saveUserName(finalName)
-                            dataStore.saveUserStartPeriod(period)
+                            dataStore.saveUserStartTimestamp(finalTime)
                             onFinish()
                         }
                     },
