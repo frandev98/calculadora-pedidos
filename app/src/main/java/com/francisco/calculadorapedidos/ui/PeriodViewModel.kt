@@ -23,7 +23,7 @@ data class PeriodUiState(
 
 @HiltViewModel
 class PeriodViewModel @Inject constructor(
-    private val orderRepository: OrderRepository // Inyección Automática Hilt
+    private val orderRepository: OrderRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PeriodUiState())
@@ -41,14 +41,16 @@ class PeriodViewModel @Inject constructor(
                 metricsMap[w] = metrics
                 tempPoints += metrics.points
 
-                if (metrics.money > 0) {
+                // BLOQUEO ESTRUCTURAL: Cashback aplica ÚNICAMENTE sobre 'regularMoney'
+                if (metrics.regularMoney > 0) {
                     val coords = FuxionFinancialLogic.getPV4Coordinates(year, periodId, w)
                     var weekHistoricalPV4 = 0
                     coords.forEach { coord ->
                         weekHistoricalPV4 += orderRepository.getWeekMetrics(coord.year, coord.period, coord.week).points
                     }
+
                     val discount = FuxionFinancialLogic.getDiscountPercentage(weekHistoricalPV4)
-                    tempDirectSalesBonus += FuxionFinancialLogic.calculateDirectSalesBonus(metrics.money, discount)
+                    tempDirectSalesBonus += FuxionFinancialLogic.calculateDirectSalesBonus(metrics.regularMoney, discount)
                 }
             }
 

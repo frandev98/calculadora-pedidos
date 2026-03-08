@@ -9,7 +9,7 @@ import com.francisco.calculadorapedidos.data.Client
 
 @Database(
     entities = [OrderRecordEntity::class, Client::class, DraftEntity::class],
-    version = 2,
+    version = 4, // BUMP CRÍTICO: Obliga a Room a generar las nuevas columnas
     exportSchema = false
 )
 @TypeConverters(Converters::class)

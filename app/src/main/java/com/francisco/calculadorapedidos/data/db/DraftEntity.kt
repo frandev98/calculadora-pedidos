@@ -8,6 +8,9 @@ data class DraftEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val year: Int,
     val period: Int,
+    // EXPANSIÓN ESTRUCTURAL PARA MODO SEMANAL
+    val week: Int = 0,
+    val clientId: String = "PERIOD",
     val productId: Int,
     val quantity: Int
 )

@@ -53,9 +53,12 @@ class OrderViewModel @Inject constructor(
     var userStartPeriod by mutableStateOf(1)
         private set
 
+    // BANDERA ESTRUCTURAL: Previene la destrucción por autoguardado prematuro
+    var hasLoadedInitialData by mutableStateOf(false)
+        private set
+
     private val distributionCalculator = DistributionCalculator()
 
-    // ESTADO DE HIDRATACIÓN DEL SISTEMA
     private val _isSystemReady = MutableStateFlow(false)
     val isSystemReady: StateFlow<Boolean> = _isSystemReady.asStateFlow()
 
@@ -78,6 +81,7 @@ class OrderViewModel @Inject constructor(
         currentPeriodId = periodId
         userStartPeriod = startPeriod
         distributionResult = null
+        _selectedProducts.clear() // MÁXIMA PRIORIDAD: Destruir el estado fantasma anterior
     }
 
     fun addProduct(product: Product) {
@@ -146,37 +150,58 @@ class OrderViewModel @Inject constructor(
     // --- ENCAPSULACIÓN DE OPERACIONES I/O (ACID) ---
 
     fun initializeOrder(year: Int, targetGoal: Int, isWeeklyMode: Boolean, periodId: Int, weekId: Int, clientId: String) {
+        hasLoadedInitialData = false
         setupMode(targetGoal, isWeeklyMode, periodId, userStartPeriod)
+
         viewModelScope.launch(Dispatchers.IO) {
-            if (isWeeklyMode && periodId != 0 && weekId != 0) {
-                val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
-                if (savedProducts.isNotEmpty()) {
-                    withContext(Dispatchers.Main) { loadProducts(savedProducts) }
+            val draftW = if (isWeeklyMode) weekId else 0
+            val draftC = if (isWeeklyMode) clientId else "PERIOD"
+
+            // 1. Prioridad Absoluta: Buscar en Sandbox (Borrador)
+            val draftProducts = orderRepository.getPeriodDraft(year, periodId, draftW, draftC)
+
+            if (draftProducts.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    loadProducts(draftProducts)
+                    hasLoadedInitialData = true
                 }
-            } else if (!isWeeklyMode && periodId != 0) {
-                val draftProducts = orderRepository.getPeriodDraft(year, periodId)
-                if (draftProducts.isNotEmpty()) {
-                    withContext(Dispatchers.Main) { loadProducts(draftProducts) }
+            } else {
+                // 2. Si no hay borrador y es modo semanal, hidratar del Ledger oficial (order_records)
+                if (isWeeklyMode && periodId != 0 && weekId != 0 && clientId.isNotEmpty()) {
+                    val savedProducts = orderRepository.getOrder(year, periodId, weekId, clientId)
+                    withContext(Dispatchers.Main) {
+                        if (savedProducts.isNotEmpty()) {
+                            loadProducts(savedProducts)
+                        }
+                        hasLoadedInitialData = true
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { hasLoadedInitialData = true }
                 }
             }
         }
     }
 
-    fun saveDraft(year: Int, periodId: Int) {
+    fun saveDraft(year: Int, periodId: Int, weekId: Int, clientId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            orderRepository.savePeriodDraft(year, periodId, _selectedProducts.toList())
+            val draftW = if (isWeeklyMode) weekId else 0
+            val draftC = if (isWeeklyMode) clientId else "PERIOD"
+            orderRepository.savePeriodDraft(year, periodId, draftW, draftC, _selectedProducts.toList())
         }
     }
 
-    fun clearDraft(year: Int, periodId: Int) {
+    fun clearDraft(year: Int, periodId: Int, weekId: Int, clientId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            orderRepository.clearPeriodDraft(year, periodId)
+            val draftW = if (isWeeklyMode) weekId else 0
+            val draftC = if (isWeeklyMode) clientId else "PERIOD"
+            orderRepository.clearPeriodDraft(year, periodId, draftW, draftC)
         }
     }
 
     fun commitWeeklyOrder(year: Int, periodId: Int, weekId: Int, clientId: String) {
         viewModelScope.launch(Dispatchers.IO) {
             orderRepository.saveOrder(year, periodId, weekId, clientId, _selectedProducts.toList())
+            orderRepository.clearPeriodDraft(year, periodId, weekId, clientId) // Purga el borrador
         }
     }
 

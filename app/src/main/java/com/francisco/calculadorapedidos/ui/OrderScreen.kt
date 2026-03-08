@@ -32,6 +32,7 @@ import com.francisco.calculadorapedidos.data.DistributedItem
 import com.francisco.calculadorapedidos.data.DistributionResult
 import com.francisco.calculadorapedidos.data.Product
 import com.francisco.calculadorapedidos.data.ProductCatalog
+import com.francisco.calculadorapedidos.logic.FuxionFinancialLogic
 import com.francisco.calculadorapedidos.ui.theme.BackgroundWhite
 import com.francisco.calculadorapedidos.ui.theme.FuxionBlue
 import com.francisco.calculadorapedidos.ui.theme.FuxionGreen
@@ -72,18 +73,10 @@ fun OrderScreen(
             onBack = { viewModel.clearResult() },
             onSave = {
                 viewModel.saveFullDistribution(year, viewModel.distributionResult!!)
-                viewModel.clearDraft(year, periodId)
+                // CORRECCIÓN: Inyección de las 4 coordenadas del Sandbox
+                viewModel.clearDraft(year, periodId, weekId, clientId)
                 showGlobalSaveSuccess = true
             }
-        )
-    } else {
-        OrderInputView(
-            viewModel = viewModel,
-            onBack = onBack,
-            year = year,
-            periodId = periodId,
-            weekId = weekId,
-            clientId = clientId
         )
     }
 
@@ -114,7 +107,14 @@ fun OrderInputView(
     var showSaveConfirmDialog by remember { mutableStateOf(false) }
 
     val isAffiliation = clientId == "AFFILIATION_GHOST"
-    val costMultiplier = if (isAffiliation) 0.80 else 1.0
+
+    val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
+    val currentDiscountRate = if (isAffiliation) FuxionFinancialLogic.getAffiliationDiscount(totalPoints.toInt()) else 0.0
+    val costMultiplier = 1.0 - currentDiscountRate
+    val totalMoney = viewModel.selectedProducts.sumOf { it.first.price * it.second * costMultiplier }
+
+    val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
+    val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
 
     val title = when {
         isAffiliation -> "Mi Afiliación (Semana 1)"
@@ -122,15 +122,11 @@ fun OrderInputView(
         else -> "Planificador de Periodo"
     }
 
-    val totalPoints = viewModel.selectedProducts.sumOf { it.first.points * it.second }.toDouble()
-    val totalMoney = viewModel.selectedProducts.sumOf { it.first.price * it.second * costMultiplier }
-    val isWeeklyGoalMet = totalPoints >= viewModel.targetGoal
-
-    val canProceed = if (viewModel.isWeeklyMode) true else viewModel.selectedProducts.isNotEmpty()
-
-    LaunchedEffect(viewModel.selectedProducts.toList()) {
-        if (!viewModel.isWeeklyMode && periodId != 0) {
-            viewModel.saveDraft(year, periodId)
+    // GATILLO DE PERSISTENCIA REACTIVA AUTÓNOMA (SANEADO: AHORA OPERA 100% SOBRE EL SANDBOX)
+    LaunchedEffect(viewModel.selectedProducts.toList(), viewModel.hasLoadedInitialData) {
+        if (viewModel.hasLoadedInitialData && periodId != 0) {
+            // Guarda silenciosamente en period_drafts sin importar el modo. No altera los Cheques.
+            viewModel.saveDraft(year, periodId, weekId, clientId)
         }
     }
 
@@ -156,10 +152,8 @@ fun OrderInputView(
                             if (canProceed) {
                                 if (viewModel.isWeeklyMode) {
                                     if (viewModel.selectedProducts.isEmpty()) {
-                                        if (periodId != 0 && weekId != 0) viewModel.clearWeeklyOrder(year, periodId, weekId, clientId)
                                         onBack()
                                     } else {
-                                        if (periodId != 0 && weekId != 0) viewModel.commitWeeklyOrder(year, periodId, weekId, clientId)
                                         if (isWeeklyGoalMet || isAffiliation) showSuccessDialog = true else showSaveConfirmDialog = true
                                     }
                                 } else {
@@ -208,7 +202,8 @@ fun OrderInputView(
                 currentMoney = totalMoney,
                 targetGoal = viewModel.targetGoal,
                 isWeekly = viewModel.isWeeklyMode,
-                isAffiliation = isAffiliation
+                isAffiliation = isAffiliation,
+                discountRate = currentDiscountRate
             )
 
             LazyColumn(contentPadding = PaddingValues(bottom = 220.dp), modifier = Modifier.weight(1f)) {
@@ -216,7 +211,7 @@ fun OrderInputView(
                     SelectedProductItem(
                         product = product,
                         quantity = quantity,
-                        isAffiliation = isAffiliation,
+                        discountRate = currentDiscountRate,
                         onInc = { viewModel.incrementQuantity(product) },
                         onDec = { if (quantity > 1) viewModel.decrementQuantity(product) },
                         onRemove = { viewModel.removeProduct(product) }
@@ -242,6 +237,16 @@ fun OrderInputView(
         )
     }
 
+    // GATILLO DE PERSISTENCIA REACTIVA AUTÓNOMA (SANEADO: AHORA OPERA 100% SOBRE EL SANDBOX)
+    LaunchedEffect(viewModel.selectedProducts.toList(), viewModel.hasLoadedInitialData) {
+        if (viewModel.hasLoadedInitialData && periodId != 0) {
+            // Guarda silenciosamente en period_drafts sin importar el modo. No altera los Cheques.
+            viewModel.saveDraft(year, periodId, weekId, clientId)
+        }
+    }
+
+// ... (MÁS ABAJO, EN EL DIÁLOGO DE BORRADO, REEMPLAZAR EL BOTÓN BORRAR) ...
+
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
@@ -251,7 +256,10 @@ fun OrderInputView(
                 Button(
                     onClick = {
                         viewModel.clearCart()
-                        if (!viewModel.isWeeklyMode && periodId != 0) viewModel.clearDraft(year, periodId)
+                        viewModel.clearDraft(year, periodId, weekId, clientId) // Purga el Sandbox
+                        if (viewModel.isWeeklyMode && periodId != 0 && weekId != 0) {
+                            viewModel.clearWeeklyOrder(year, periodId, weekId, clientId) // Purga Ledger
+                        }
                         showDeleteDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
@@ -277,7 +285,8 @@ fun GamifiedProgressHeader(
     currentMoney: Double,
     targetGoal: Int,
     isWeekly: Boolean,
-    isAffiliation: Boolean = false
+    isAffiliation: Boolean = false,
+    discountRate: Double = 0.0
 ) {
     val goal = targetGoal.toDouble()
     val isWildcard = isWeekly && targetGoal == 0 && !isAffiliation
@@ -286,9 +295,14 @@ fun GamifiedProgressHeader(
         if (currentPoints < goal) {
             val p = (currentPoints / goal).coerceIn(0.0, 1.0)
             val left = goal - currentPoints
-            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts para tu código", ProgressOrange)
+            ProgressState(goal, p, "Faltan ${String.format("%.1f", left)} pts mínimos (40pts)", ProgressOrange)
         } else {
-            ProgressState(goal, 1.0, "¡Paquete de Afiliación Activo! 🎉", FuxionGreen)
+            val tierStatus = when {
+                currentPoints >= 300 -> "Nivel Máximo (30%)"
+                currentPoints >= 100 -> "A un paso del 30%"
+                else -> "A un paso del 25%"
+            }
+            ProgressState(goal, 1.0, "Activo. $tierStatus", FuxionGreen)
         }
     } else if (isWeekly) {
         if (isWildcard) {
@@ -319,7 +333,7 @@ fun GamifiedProgressHeader(
         Column(Modifier.padding(20.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
 
             val titleText = when {
-                isAffiliation -> "PAQUETE INICIAL (-20%)"
+                isAffiliation -> "PAQUETE INICIAL (-${(discountRate * 100).toInt()}%)"
                 isWildcard -> "VENTA COMODÍN"
                 else -> "TU PROGRESO"
             }
@@ -358,7 +372,7 @@ fun GamifiedProgressHeader(
 fun SelectedProductItem(
     product: Product,
     quantity: Int,
-    isAffiliation: Boolean = false,
+    discountRate: Double = 0.0,
     onInc: () -> Unit,
     onDec: () -> Unit,
     onRemove: () -> Unit
@@ -380,7 +394,6 @@ fun SelectedProductItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Color(0xFF333333), maxLines = 2)
 
-                // INYECCIÓN DE CONSTANTES UNITARIAS PÚBLICAS
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(product.presentation, style = MaterialTheme.typography.bodySmall, color = Color(0xFF757575))
                     val formattedBase = if (product.points % 1.0 == 0.0) product.points.toInt().toString() else product.points.toString()
@@ -389,11 +402,10 @@ fun SelectedProductItem(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // MÉTRICAS AGREGADAS (TOTALES)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val rowPoints = product.points * quantity
                     val formattedPoints = if (rowPoints % 1.0 == 0.0) rowPoints.toInt().toString() else rowPoints.toString()
-                    val costMultiplier = if (isAffiliation) 0.80 else 1.0
+                    val costMultiplier = 1.0 - discountRate
                     val rowPrice = product.price * quantity * costMultiplier
 
                     Text("Σ $formattedPoints pts", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
@@ -433,7 +445,7 @@ fun ResultView(
             ExtendedFloatingActionButton(
                 onClick = onSave,
                 containerColor = FuxionGreen,
-                contentColor = androidx.compose.ui.graphics.Color.White
+                contentColor = Color.White
             ) {
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -446,15 +458,15 @@ fun ResultView(
                 contentPadding = PaddingValues(bottom = 80.dp),
                 modifier = Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding())
             ) {
-                item { StrategicResultHeader(totalPoints = result.globalPoints.toDouble(), isPerfect = result.isPerfectFit) }
+                item { StrategicResultHeader(totalPoints = result.globalPoints, isPerfect = result.isPerfectFit) }
 
                 val weeks = listOf(result.week1, result.week2, result.week3, result.week4)
 
                 weeks.forEach { week ->
                     item {
-                        TimelineWeekItem("Semana ${week.weekIndex}", week.totalPoints.toDouble(), isLast = week.weekIndex == 4) {
+                        TimelineWeekItem("Semana ${week.weekIndex}", week.totalPoints, isLast = week.weekIndex == 4) {
                             week.slots.forEach { slot ->
-                                SubOrderHeader("${slot.clientId} (Meta: ${slot.targetPoints})", slot.achievedPoints.toDouble())
+                                SubOrderHeader("${slot.clientId} (Meta: ${slot.targetPoints})", slot.achievedPoints)
                                 slot.items.forEach { ProductResultRow(it) }
                             }
                         }
